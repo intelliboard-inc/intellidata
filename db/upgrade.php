@@ -1694,5 +1694,15 @@ function xmldb_local_intellidata_upgrade($oldversion) {
         upgrade_plugin_savepoint(true, 2025081300, 'local', 'intellidata');
     }
 
+    // Update configuration after removing 'enrol_*' from allowed system tables list.
+    // This allows export of enrol_* tables by removing the restriction.
+    if ($oldversion < 2026021801) {
+        $configservice = new config_service(datatypes_service::get_all_datatypes());
+        $configservice->setup_config();
+        $configservice->cache_config();
+
+        upgrade_plugin_savepoint(true, 2026021801, 'local', 'intellidata');
+    }
+
     return true;
 }
