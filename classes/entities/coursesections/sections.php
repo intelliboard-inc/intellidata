@@ -98,11 +98,12 @@ class sections extends \local_intellidata\entities\entity {
 
         require_once($CFG->dirroot . '/course/lib.php');
 
-        try {
-            $object->name = $object->name ? :
-                course_get_format($object->course)->get_default_section_name($object);
-        } catch (\Throwable $e) {
-            DebugHelper::error_log($e->getMessage());
+        if (empty($object->name) && !empty($object->course) && isset($object->section)) {
+            try {
+                $object->name = @get_section_name($object->course, $object->section);
+            } catch (\Throwable $e) {
+                DebugHelper::error_log($e->getMessage());
+            }
         }
 
         return $object;

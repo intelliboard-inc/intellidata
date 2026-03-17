@@ -146,12 +146,14 @@ class user extends \local_intellidata\entities\entity {
         $state = ParamsHelper::STATE_INACTIVE;
         if (isset($object->deleted) && $object->deleted) {
             $state = ParamsHelper::STATE_DELETE;
-        } else if ($object->confirmed && (isset($object->suspended) && !$object->suspended)) {
+        } else if (isset($object->confirmed) && $object->confirmed && (isset($object->suspended) && !$object->suspended)) {
             $state = ParamsHelper::STATE_ACTIVE;
         }
         $object->state = $state;
-        if (!empty($object->lastlogin) || !empty($object->currentlogin)) {
-            $object->lastlogin = max($object->lastlogin, $object->currentlogin);
+        if (isset($object->lastlogin) || isset($object->currentlogin)) {
+            $lastlogin = $object->lastlogin ?? 0;
+            $currentlogin = $object->currentlogin ?? 0;
+            $object->lastlogin = max($lastlogin, $currentlogin);
         }
 
         return $object;

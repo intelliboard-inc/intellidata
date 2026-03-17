@@ -29,6 +29,7 @@ namespace local_intellidata\helpers;
 defined('MOODLE_INTERNAL') || die();
 
 require_once($CFG->libdir . '/adminlib.php');
+require_once($CFG->libdir . '/ddllib.php');
 
 /**
  * This plugin provides access to Moodle data in form of analytics and reports in real time.

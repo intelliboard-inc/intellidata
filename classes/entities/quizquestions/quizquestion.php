@@ -85,7 +85,11 @@ class quizquestion extends \local_intellidata\entities\entity {
      * @throws invalid_persistent_exception
      */
     public static function prepare_export_data($object, $fields = [], $table = '') {
-        $object->questiontext = substr($object->questiontext, 0, 5000);
+        if (isset($object->questiontext) && $object->questiontext !== null) {
+            $object->questiontext = substr($object->questiontext, 0, 5000);
+        } else {
+            $object->questiontext = '';
+        }
         return $object;
     }
 }
