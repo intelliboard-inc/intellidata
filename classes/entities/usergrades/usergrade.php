@@ -113,36 +113,46 @@ class usergrade extends \local_intellidata\entities\entity {
 
         require_once($CFG->libdir . '/gradelib.php');
 
+        if (empty($object->itemid)) {
+            return $object;
+        }
+
         $gradeitem = \grade_item::fetch(['id' => $object->itemid]);
 
-        if (AJAX_SCRIPT && $CFG->debugdeveloper) {
+        if (AJAX_SCRIPT && $CFG->debugdeveloper && $gradeitem) {
             $PAGE->set_context($gradeitem->get_context());
         }
 
         $data = new \stdClass();
-        $data->id = $object->id;
-        $data->gradeitemid = $object->itemid;
-        $data->userid = $object->userid;
-        $data->usermodified = $object->usermodified;
+        $data->id = $object->id ?? null;
+        $data->gradeitemid = $object->itemid ?? null;
+        $data->userid = $object->userid ?? null;
+        $data->usermodified = $object->usermodified ?? null;
         $data->feedback = !empty($object->feedback) ? $object->feedback : '';
-        $data->hidden = $object->hidden;
-        $data->timemodified = $object->timemodified;
+        $data->hidden = $object->hidden ?? 0;
+        $data->timemodified = $object->timemodified ?? null;
 
         if ($gradeitem) {
             // Each user have own grade max and grade min.
-            $gradeitem->grademax = $object->rawgrademax;
-            $gradeitem->grademin = $object->rawgrademin;
+            if (isset($object->rawgrademax)) {
+                $gradeitem->grademax = $object->rawgrademax;
+            }
+            if (isset($object->rawgrademin)) {
+                $gradeitem->grademin = $object->rawgrademin;
+            }
 
-            $score = grade_format_gradevalue($object->finalgrade, $gradeitem, true, GRADE_DISPLAY_TYPE_PERCENTAGE);
+            $finalgrade = $object->finalgrade ?? 0;
+            $score = grade_format_gradevalue($finalgrade, $gradeitem, true, GRADE_DISPLAY_TYPE_PERCENTAGE);
             $displaytype = $gradeitem->gradetype == GRADE_TYPE_SCALE ? GRADE_DISPLAY_TYPE_REAL : GRADE_DISPLAY_TYPE_LETTER;
-            $data->letter = grade_format_gradevalue($object->finalgrade, $gradeitem, true, $displaytype);
+            $data->letter = grade_format_gradevalue($finalgrade, $gradeitem, true, $displaytype);
             $data->score = str_replace(' %', '', $score);
             $data->point = ($gradeitem->gradetype == GRADE_TYPE_SCALE) ?
-                $gradeitem->bounded_grade($object->finalgrade) :
-                grade_format_gradevalue($object->finalgrade, $gradeitem, true, GRADE_DISPLAY_TYPE_REAL);
+                $gradeitem->bounded_grade($finalgrade) :
+                grade_format_gradevalue($finalgrade, $gradeitem, true, GRADE_DISPLAY_TYPE_REAL);
         } else {
-            if (CLI_SCRIPT) {
-                mtrace('Not found gradeitem: ' . $object->itemid);
+            // Не виводимо mtrace під час тестів
+            if (CLI_SCRIPT && !PHPUNIT_TEST) {
+                mtrace('Not found gradeitem: ' . ($object->itemid ?? 'unknown'));
             }
             $data->letter = null;
             $data->score = null;

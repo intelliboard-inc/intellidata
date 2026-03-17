@@ -73,8 +73,8 @@ class lti_launch implements renderable, templatable {
 
         $inpunts = [];
         foreach ($this->params as $key => $value) {
-            $key = htmlspecialchars($key, ENT_QUOTES);
-            $value = htmlspecialchars($value, ENT_QUOTES);
+            $key = $key;
+            $value = $value;
             $input = [];
 
             if ( $key == "ext_submit" ) {

@@ -305,7 +305,7 @@ class entity {
         // We can safely set those values bypassing the validation because we know what we're doing.
         $now = microtime(true);
         $this->raw_set('recordtimecreated', $now);
-        $this->raw_set('recordusermodified', $USER->id);
+        $this->raw_set('recordusermodified', isset($USER->id) ? $USER->id : 0);
         $this->raw_set('crud', $this->get_crud());
 
         return $this->to_record();

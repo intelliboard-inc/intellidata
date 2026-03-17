@@ -170,12 +170,13 @@ class new_export_service {
 
         $columns = $DB->get_columns($table);
         foreach ($data as $key => $value) {
-            if (!$column = $columns[$key]) {
+            if (!isset($columns[$key]) || !$column = $columns[$key]) {
                 // If the column is not in the table.
                 unset($data[$key]);
+                continue;
             }
 
-            if ($column->meta_type == 'X') {
+            if (isset($column) && $column->meta_type == 'X') {
                 unset($data[$key]);
             }
         }
@@ -462,7 +463,7 @@ class new_export_service {
         $access = true;
         switch ($datatype) {
             case 'participation':
-                if (!in_array($data->crud, ['c', 'u']) || !$data->userid ||
+                if (!isset($data->crud) || !in_array($data->crud, ['c', 'u']) || !$data->userid ||
                     !in_array($data->contextlevel, [CONTEXT_COURSE, CONTEXT_MODULE])) {
                     $access = false;
                 }

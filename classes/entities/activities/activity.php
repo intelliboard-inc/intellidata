@@ -129,6 +129,9 @@ class activity extends \local_intellidata\entities\entity {
 
         $activitdata = new \stdClass();
         $activitdata->id = $object->id;
+        if (empty($object->course)) {
+            return $object;
+        }
         $activitdata->courseid = $object->course;
 
         if (!count($fields)) {

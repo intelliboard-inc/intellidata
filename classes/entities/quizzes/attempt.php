@@ -105,9 +105,12 @@ class attempt extends \local_intellidata\entities\entity {
     public static function prepare_export_data($object, $fields = [], $table = '') {
         global $DB;
 
+        if (empty($object->quiz)) {
+            return $object;
+        }
         if ($quiz = $DB->get_record('quiz', ['id' => $object->quiz])) {
             $object->points = $quiz->score = 0;
-            if ($object->sumgrades && $quiz->sumgrades && $quiz->sumgrades > 0) {
+            if (isset($object->sumgrades) && $object->sumgrades && $quiz->sumgrades && $quiz->sumgrades > 0) {
                 $object->points = ($object->sumgrades / $quiz->sumgrades) * $quiz->grade;
                 $object->score = ($object->sumgrades / $quiz->sumgrades) * 100;
             }
