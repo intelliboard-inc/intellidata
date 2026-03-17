@@ -97,6 +97,9 @@ class roleassignment extends \local_intellidata\entities\entity {
     public static function prepare_export_data($object, $fields = [], $table = '') {
         global $DB;
 
+        if (empty($object->contextid)) {
+            return $object;
+        }
         $context = $DB->get_record('context', ['id' => $object->contextid]);
         if ($context) {
             $object->courseid = $context->instanceid;

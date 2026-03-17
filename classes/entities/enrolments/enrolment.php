@@ -106,6 +106,9 @@ class enrolment extends \local_intellidata\entities\entity {
     public static function prepare_export_data($object, $fields = [], $table = '') {
         global $DB;
 
+        if (empty($object->enrolid)) {
+            return $object;
+        }
         if ($enrol = $DB->get_record('enrol', ['id' => $object->enrolid])) {
             $object->courseid = $enrol->courseid;
             $object->enroltype = $enrol->enrol;

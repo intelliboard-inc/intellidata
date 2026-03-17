@@ -105,6 +105,9 @@ class forumpost extends \local_intellidata\entities\entity {
     public static function prepare_export_data($object, $fields = [], $table = '') {
         global $DB;
 
+        if (empty($object->discussion)) {
+            return $object;
+        }
         if ($discussion = $DB->get_record('forum_discussions', ['id' => $object->discussion])) {
             $object->forum = $discussion->forum;
         }

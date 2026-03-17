@@ -122,17 +122,27 @@ class submission extends \local_intellidata\entities\entity {
 
         if ($table == 'assign_grades') {
             $gradedata = $object;
+            if (empty($gradedata->assignment) || empty($gradedata->userid) || !isset($gradedata->attemptnumber)) {
+                return $object;
+            }
             $object = $DB->get_record('assign_submission', [
                 'assignment' => $gradedata->assignment,
                 'userid' => $gradedata->userid,
                 'attemptnumber' => $gradedata->attemptnumber,
             ]);
         } else {
+            if (empty($object->assignment) || empty($object->userid) || !isset($object->attemptnumber)) {
+                return $object;
+            }
             $gradedata = $DB->get_record('assign_grades', [
                 'assignment' => $object->assignment,
                 'userid' => $object->userid,
                 'attemptnumber' => $object->attemptnumber,
             ]);
+        }
+
+        if (empty($object) || empty($object->id)) {
+            return $object;
         }
 
         $object->submission_type = observer::get_submission_type($object->id);
