@@ -627,11 +627,17 @@ class DBHelper {
 
             if ((!defined('PHPUNIT_TEST') || !PHPUNIT_TEST) && (!defined('CLI_SCRIPT') || !CLI_SCRIPT) && $penetrationtype == self::PENETRATION_TYPE_EXTERNAL) {
                 $temptables = $db::get_temptables($DB);
-                try {
-                    $DB->dispose();
-                } catch (\Throwable $e) {
-                    // Ignore if connection already disposed.
-                    $e->getMessage();
+                // DB session handler keeps the pre-after_config $DB; disposing it breaks session writes.
+                $sessionusesdefaultdb = empty($CFG->session_handler_class)
+                    && !empty($CFG->dbsessions)
+                    && $DB->session_lock_supported();
+                if (!$sessionusesdefaultdb) {
+                    try {
+                        $DB->dispose();
+                    } catch (\Throwable $e) {
+                        // Ignore if connection already disposed.
+                        $e->getMessage();
+                    }
                 }
 
                 // Reset DI container because container already has a registered dependency \moodle_database.
