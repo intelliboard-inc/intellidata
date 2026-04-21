@@ -85,7 +85,7 @@ class observer {
      * @return void
      */
     private static function create_export_task() {
-        if (!TrackingHelper::eventstracking_enabled()) { 
+        if (!TrackingHelper::eventstracking_enabled()) {
             return;
         }
 
