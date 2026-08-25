@@ -69,17 +69,27 @@ class migration extends \local_intellidata\entities\migration {
             $additionalfromsql = 'USE INDEX({logsstanlog_con_ix})';
         }
 
+        // The event name is bound rather than written as a SQL literal. It used
+        // to be '\\\\core\\\\event\\\\user_loggedin' inside a double-quoted PHP string,
+        // which PHP renders as the SQL literal '\\core\\event\\user_loggedin'. MySQL
+        // treats backslash as an escape inside string literals and collapses
+        // that to the intended value, but PostgreSQL has had
+        // standard_conforming_strings on by default since 9.1, so it kept both
+        // backslashes and matched nothing - the userlogins datatype exported
+        // zero rows on PostgreSQL, silently, with no error.
+        $sqlparams['eventname'] = '\\core\\event\\user_loggedin';
+
         if ($count) {
             $sql = "SELECT
                         COUNT(DISTINCT userid) as recordscount
                       FROM {logstore_standard_log} $additionalfromsql
-                     WHERE contextid = 1 AND eventname = '\\\\core\\\\event\\\\user_loggedin' $sqlwhere";
+                     WHERE contextid = 1 AND eventname = :eventname $sqlwhere";
         } else {
             $sql = "SELECT
                         userid AS id,
                         COUNT(userid) AS logins
                       FROM {logstore_standard_log} $additionalfromsql
-                     WHERE contextid = 1 AND eventname = '\\\\core\\\\event\\\\user_loggedin' $sqlwhere
+                     WHERE contextid = 1 AND eventname = :eventname $sqlwhere
                   GROUP BY userid
                   ORDER BY userid";
         }

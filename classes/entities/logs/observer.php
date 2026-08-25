@@ -93,7 +93,12 @@ class observer {
      */
     private static function export_event($datatypename, $eventdata) {
         $record = (object)$eventdata;
-        $record->other = (is_array($record->other)) ? json_encode($record) : $record->other;
+
+        // Encoding $record put the whole event record - eventname,
+        // component, contextid, userid, ip and a nested copy of other itself -
+        // into the other column of every exported log row, instead of the event
+        // payload the column is for.
+        $record->other = is_array($record->other) ? json_encode($record->other) : $record->other;
 
         $entity = new log($record, []);
         $data = $entity->export();

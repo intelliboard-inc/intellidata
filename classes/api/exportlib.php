@@ -92,8 +92,12 @@ class local_intellidata_exportlib extends external_api {
             ];
         }
 
-        // Validate clientid.
-        if ($params['code'] != $encryptionservice->clientidentifier) {
+        // Validate clientid. hash_equals(), not !=: a loose comparison of two
+        // numeric-looking strings can match on value rather than content, and a
+        // byte-at-a-time comparison of a shared secret is a timing oracle. This
+        // is the one function in the service with no check_auth() call, so it
+        // is the most exposed comparison in the plugin.
+        if (!hash_equals((string)$encryptionservice->clientidentifier, (string)$params['code'])) {
             return [
                 'data' => 'wrongclientid',
                 'status' => apilib::STATUS_ERROR,
@@ -255,7 +259,11 @@ class local_intellidata_exportlib extends external_api {
         $notmigrateddatatypes = array_diff($alldatatypes, $migrateddatatypes);
         if ($notmigrateddatatypes) {
             return [
-                'data' => 'Migrations not ready: ' . implode(', ', $notmigrateddatatypes),
+                'data' => get_string(
+                    'error_migrationsnotready',
+                    ParamsHelper::PLUGIN,
+                    implode(', ', $notmigrateddatatypes)
+                ),
                 'status' => apilib::STATUS_ERROR,
             ];
         }
@@ -334,7 +342,7 @@ class local_intellidata_exportlib extends external_api {
 
         if (!in_array($params['datatype'], ['roles', 'categories', 'courses'])) {
             return [
-                'data' => 'Unsupported datatype for real time',
+                'data' => get_string('error_datatypenotrealtime', ParamsHelper::PLUGIN),
                 'status' => apilib::STATUS_ERROR,
             ];
         }
@@ -443,7 +451,7 @@ class local_intellidata_exportlib extends external_api {
         }
 
         return [
-            'data' => 'Datatype successfully added.',
+            'data' => get_string('datatypeadded', ParamsHelper::PLUGIN),
             'status' => apilib::STATUS_SUCCESS,
         ];
     }
@@ -591,34 +599,45 @@ class local_intellidata_exportlib extends external_api {
 
         if (empty($sessionslist)) {
             return [
-                'data' => 'Empty list of sessions',
+                'data' => get_string('error_emptysessionslist', ParamsHelper::PLUGIN),
                 'status' => apilib::STATUS_ERROR,
             ];
         }
 
         if ($params['limit'] > 1000 || $params['limit'] < 1) {
             return [
-                'data' => 'Limit is required',
+                'data' => get_string('error_limitrequired', ParamsHelper::PLUGIN),
                 'status' => apilib::STATUS_ERROR,
             ];
         }
 
         if (!get_component_version('mod_collaborate')) {
             return [
-                'data' => 'Blackboard Collaborate not installed',
+                'data' => get_string('error_collaboratenotinstalled', ParamsHelper::PLUGIN),
                 'status' => apilib::STATUS_ERROR,
             ];
         }
 
-        list($in, $params) = $DB->get_in_or_equal($sessionslist);
-        $data = $DB->get_records_select(
-            'collaborate', "sessionuid $in", $params, '',
-            'id,course,sessionuid', $params['limit'], $params['offset']
+        // Note get_in_or_equal() returns a positionally-indexed array of bind
+        // values. Assigning it to $params overwrote the validated request
+        // parameters, so $params['limit'] and $params['offset'] read keys that
+        // no longer existed, evaluated to null, and the query returned every
+        // matching row - which made the "Limit is required" check above
+        // decorative. Keep the bind values in their own variable.
+        [$in, $inparams] = $DB->get_in_or_equal($sessionslist);
+        $records = $DB->get_records_select(
+            'collaborate',
+            "sessionuid $in",
+            $inparams,
+            '',
+            'id,course,sessionuid',
+            $params['offset'],
+            $params['limit']
         );
 
         $encryptionservice = new encryption_service();
         return [
-            'data' => $encryptionservice->encrypt(json_encode($data)),
+            'data' => $encryptionservice->encrypt(json_encode($records)),
             'status' => apilib::STATUS_SUCCESS,
         ];
     }

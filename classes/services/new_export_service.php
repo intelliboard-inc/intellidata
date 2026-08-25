@@ -209,11 +209,23 @@ class new_export_service {
             return;
         }
 
-        $records = $DB->get_records_sql("SELECT * FROM {" . $table . "} " . $select, $params);
-        foreach ($this->entityclases as $entity) {
-            $requiredatatype = !isset($entity::$datatype);
+        // A recordset rather than an array of every matched row. This runs
+        // inside the replaced global $DB, so it fires on core's own bulk updates
+        // and the matched set is unbounded. Both drivers still buffer the result
+        // client-side - mysqli deliberately uses MYSQLI_STORE_RESULT, and libpq
+        // materialises regardless - so what this avoids is the PHP array of row
+        // objects, which is the dominant cost, not the result set itself. The
+        // loops are record-outer/entity-inner so a recordset can be used; each
+        // entity gets its own copy of the row, which the previous entity-outer
+        // form did not guarantee once more than one datatype was registered for
+        // the table.
+        $recordset = $DB->get_recordset_sql("SELECT * FROM {" . $table . "} " . $select, $params);
 
-            foreach ($records as $record) {
+        foreach ($recordset as $row) {
+            foreach ($this->entityclases as $entity) {
+                $requiredatatype = !isset($entity::$datatype);
+                $record = clone $row;
+
                 if ($requiredatatype && !$this->filter($entity::TYPE, $record)) {
                     continue;
                 }
@@ -228,6 +240,8 @@ class new_export_service {
                 $this->export($entity);
             }
         }
+
+        $recordset->close();
     }
 
     /**
@@ -340,19 +354,30 @@ class new_export_service {
             $requiredatatype = !isset($entity::$datatype);
 
             foreach ($values as $value) {
-                if (!$field == 'id') {
+                $recordid = $value;
+
+                // Was written `!$field == 'id'`, which PHP parses as
+                // `(!$field) == 'id'` and is therefore always false: the whole
+                // branch never ran. As a result a delete keyed on any other
+                // column (delete_records_list($table, 'enrolid', ...)) emitted
+                // that column's value as the record id, and the datatype filter
+                // was never applied to deletes at all.
+                if ($field !== 'id') {
                     if (!$record = $DB->get_record($table, [$field => $value])) {
-                        return;
+                        // Nothing to export for this value; the remaining
+                        // values and the remaining entities still must be
+                        // processed, so continue rather than return.
+                        continue;
                     }
 
-                    $value = $record->id;
+                    $recordid = $record->id;
                     if (!$this->filter($entity::TYPE, $record)) {
-                        return;
+                        continue;
                     }
                 }
 
                 $params = new \stdClass;
-                $params->id = $value;
+                $params->id = $recordid;
                 $params->crud = 'd';
                 $entity->set_values($params);
 
@@ -386,14 +411,19 @@ class new_export_service {
             return;
         }
 
+        // A recordset rather than an array of every matched row, for the same
+        // reason as set_field_select_event(): this runs inside the replaced
+        // global $DB and the matched set is unbounded. Both drivers still buffer
+        // client-side, so what this avoids is the PHP array of row objects.
         $sql = "SELECT id FROM {" . $table . "} WHERE $select";
-        $ids = array_keys($DB->get_records_sql($sql, $params));
+        $recordset = $DB->get_recordset_sql($sql, $params);
 
-        foreach ($this->entityclases as $entity) {
-            $requiredatatype = !isset($entity::$datatype);
-            foreach ($ids as $id) {
+        foreach ($recordset as $row) {
+            foreach ($this->entityclases as $entity) {
+                $requiredatatype = !isset($entity::$datatype);
+
                 $record = new \stdClass;
-                $record->id = $id;
+                $record->id = $row->id;
 
                 if ($requiredatatype) {
                     if (!$record = $entity::prepare_export_data($record, [], $table)) {
@@ -406,6 +436,8 @@ class new_export_service {
                 $this->export($entity);
             }
         }
+
+        $recordset->close();
     }
 
     /**

@@ -183,7 +183,24 @@ class file_storage_repository extends storage_repository {
             foreach ($usersdata as $userid => $userdata) {
 
                 // Export tracking records for individual user.
-                $repository->save_tracking_records($userid, $this->trackingstorage->prepare_usersdata($usersdata));
+                //
+                // prepare_usersdata() walks exactly three levels and collects
+                // the fourth, and get_usersdata_from_file() builds four -
+                // [userid][page][param][table] - so what it must be handed is a
+                // map still keyed by user id. Its elements are then the table
+                // maps that extract_tracking_records() indexes as
+                // $data['tracking']. Passing a single user's subtree is one
+                // level too shallow: the elements become table values, that
+                // index is undefined, and nothing is written.
+                //
+                // Each storage file is named <userid>.csv and every record in it
+                // is checked against that id, so this map has a single key
+                // anyway; it is rebuilt here so the per-user scope is explicit
+                // rather than incidental.
+                $repository->save_tracking_records(
+                    $userid,
+                    $this->trackingstorage->prepare_usersdata([$userid => $userdata])
+                );
             }
         }
     }

@@ -51,9 +51,15 @@ class mobile {
         $otherdata = [];
         $javascript = '';
         if (SettingsHelper::get_setting('enabledtracking')) {
+            // Deliberately no token and no api_url. This handler is called for
+            // every authenticated app session with no capability filter, so
+            // anything placed here is readable by every user of the site -
+            // and what used to be here was the shared site-level web service
+            // token, which any student could lift with one request and then use
+            // as the site's IntelliData service credential. The tracking call
+            // now goes through the app's own authenticated session instead;
+            // see appjs/mobile.initialization.js.
             $otherdata = [
-                'token' => SettingsHelper::get_setting('webservicetoken'),
-                'api_url' => $CFG->wwwroot . '/webservice/rest/server.php',
                 'ajaxfrequency' => (int) SettingsHelper::get_setting('ajaxfrequency'),
                 'inactivity' => (int) SettingsHelper::get_setting('inactivity'),
                 'mediatrack' => SettingsHelper::get_setting('trackmedia'),

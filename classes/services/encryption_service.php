@@ -87,7 +87,11 @@ class encryption_service {
      */
     public function encrypt($data) {
         $ivlength = openssl_cipher_iv_length(self::ENCRYPTION_ALG);
-        $iv = openssl_random_pseudo_bytes($ivlength);
+
+        // The openssl_random_pseudo_bytes() call does not guarantee a
+        // cryptographically strong source unless $cryptostrong is checked.
+        // random_bytes() throws rather than returning weak material.
+        $iv = random_bytes($ivlength);
 
         return openssl_encrypt(
             $data, self::ENCRYPTION_ALG, $this->encryptionkey, 0, $iv
@@ -101,10 +105,22 @@ class encryption_service {
      * @return false|array
      */
     public function decrypt($encryptedddata) {
-        list($data, $iv) = explode('..', $encryptedddata);
-        $iv = base64_decode($iv);
+        // Destructuring explode('..', ...) raised "Undefined array key 1" and
+        // passed null as the IV whenever the input did not contain the
+        // separator - which any malformed or truncated header does.
+        $parts = explode('..', (string)$encryptedddata);
 
-        return openssl_decrypt($data, self::ENCRYPTION_ALG, $this->encryptionkey, 0, $iv);
+        if (count($parts) !== 2 || $parts[0] === '' || $parts[1] === '') {
+            return false;
+        }
+
+        $iv = base64_decode($parts[1], true);
+
+        if ($iv === false || strlen($iv) !== openssl_cipher_iv_length(self::ENCRYPTION_ALG)) {
+            return false;
+        }
+
+        return openssl_decrypt($parts[0], self::ENCRYPTION_ALG, $this->encryptionkey, 0, $iv);
     }
 
     /**
@@ -129,7 +145,7 @@ class encryption_service {
     public function encrypt_file($sourcefilepath, $destfilepath) {
 
         $ivlength = openssl_cipher_iv_length(self::ENCRYPTION_ALG);
-        $iv = openssl_random_pseudo_bytes($ivlength);
+        $iv = random_bytes($ivlength);
 
         $result = true;
         if ($fpout = fopen($destfilepath, 'w')) {

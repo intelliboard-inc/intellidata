@@ -157,12 +157,16 @@ class observer {
                     'instructorchoiceacceptgrades' => $instance->instructorchoiceacceptgrades,
                     'grade' => $instance->grade,
                     'launchcontainer' => $instance->launchcontainer,
-                    'resourcekey' => $instance->resourcekey,
-                    'password' => $instance->password,
+                    // Three columns are omitted deliberately: the LTI consumer
+                    // key, the shared secret and the outcomes-service salt.
+                    // They are redeemable bearer credentials for a customer's
+                    // own external tool - possession is authorisation - so
+                    // they must not leave the site. Nothing in the analytics
+                    // product needs them: the tool is identified by typeid and
+                    // toolurl, which are still exported.
                     'debuglaunch' => $instance->debuglaunch,
                     'showtitlelaunch' => $instance->showtitlelaunch,
                     'showdescriptionlaunch' => $instance->showdescriptionlaunch,
-                    'servicesalt' => $instance->servicesalt,
                     'icon' => $instance->icon,
                     'secureicon' => $instance->secureicon,
                 ];

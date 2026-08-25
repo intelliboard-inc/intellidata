@@ -76,7 +76,14 @@ class ltitypes extends \local_intellidata\entities\entity {
                 'description' => 'Course id.',
                 'default' => 0,
             ],
-            'сoursevisible' => [
+            // The exported property name is the column name the analytics
+            // warehouse declares, and it declares the Cyrillic spelling this
+            // field has always carried. Renaming it here silently stops that
+            // column receiving data on every tenant, so the bytes are kept and
+            // written as an explicit escape instead: identical on the wire, but
+            // no longer an invisible lookalike in source. Renaming it properly
+            // is a coordinated change with the warehouse, not a sweep.
+            "\u{0441}oursevisible" => [
                 'type' => PARAM_INT,
                 'description' => 'Course visible status.',
                 'default' => 0,

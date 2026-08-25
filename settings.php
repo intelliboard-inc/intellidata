@@ -79,8 +79,7 @@ if ($ADMIN->locate('localplugins') && $ADMIN->locate('root')) {
         $pluginname . '/' . $name,
         get_string($name, $pluginname),
         '',
-        SettingsHelper::get_defaut_config_value($name),
-        PARAM_TEXT
+        SettingsHelper::get_defaut_config_value($name)
     );
     $settings->add($setting);
 
@@ -89,8 +88,7 @@ if ($ADMIN->locate('localplugins') && $ADMIN->locate('root')) {
         $pluginname . '/' . $name,
         get_string($name, $pluginname),
         '',
-        SettingsHelper::get_defaut_config_value($name),
-        PARAM_TEXT
+        SettingsHelper::get_defaut_config_value($name)
     );
     $settings->add($setting);
 
@@ -273,16 +271,6 @@ if ($ADMIN->locate('localplugins') && $ADMIN->locate('root')) {
     );
     $settings->add($setting);
 
-    $name = 'webservicetoken';
-    $setting = new admin_setting_configtext(
-        $pluginname . '/' . $name,
-        get_string($name, $pluginname),
-        '',
-        SettingsHelper::get_defaut_config_value($name),
-        PARAM_TEXT
-    );
-    $settings->add($setting);
-
     $name = 'trackadmin';
     $setting = new admin_setting_configcheckbox(
         $pluginname . '/' . $name,
@@ -371,24 +359,14 @@ if ($ADMIN->locate('localplugins') && $ADMIN->locate('root')) {
     );
     $settings->add($setting);
 
-    $name = 'ltiassigndefaultmethod';
-    $setting = new admin_setting_configcheckbox(
-        $pluginname . '/' . $name,
-        get_string($name, $pluginname),
-        get_string($name . '_description', $pluginname),
-        SettingsHelper::get_defaut_config_value($name),
-        true,
-        false
-    );
-    $settings->add($setting);
-
-    $name = 'debug';
+    $name = 'ltidebug';
     $setting = new admin_setting_configcheckbox(
         $pluginname . '/' . $name,
         get_string('ltidebug', $pluginname),
         '',
         SettingsHelper::get_defaut_config_value($name),
-        PARAM_TEXT
+        true,
+        false
     );
     $settings->add($setting);
 

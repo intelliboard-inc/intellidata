@@ -26,8 +26,8 @@
 
 use local_intellidata\api\apilib;
 use local_intellidata\services\encryption_service;
+use local_intellidata\helpers\ParamsHelper;
 use local_intellidata\helpers\SettingsHelper;
-use local_intellidata\event\local_intellidata_sql_request;
 
 defined('MOODLE_INTERNAL') || die();
 
@@ -98,7 +98,7 @@ class local_intellidata_datalib extends external_api {
 
         if (!\local_intellidata\services\lti_service::get_lti_role()) {
             return [
-                'data' => $encryptionservice->encrypt('LTI role not configured.'),
+                'data' => $encryptionservice->encrypt(get_string('error_ltirolenotconfigured', ParamsHelper::PLUGIN)),
                 'status' => apilib::STATUS_SUCCESS,
             ];
         }
@@ -111,7 +111,7 @@ class local_intellidata_datalib extends external_api {
         $encryptionservice = new encryption_service();
 
         return [
-            'data' => $encryptionservice->encrypt('Lti role successfully assigned.'),
+            'data' => $encryptionservice->encrypt(get_string('ltiroleassigned', ParamsHelper::PLUGIN)),
             'status' => apilib::STATUS_SUCCESS,
         ];
     }

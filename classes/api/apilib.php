@@ -38,45 +38,105 @@ class apilib {
     const STATUS_ERROR = 'error';
 
     /**
-     * Validate API Response and keys.
+     * Clock skew tolerated when checking the auth header's expiry, in seconds.
+     *
+     * Both bounds below are relative to this site's clock while the header was
+     * stamped against the issuer's, so any difference between the two shows up
+     * as apparent skew. Self-hosted sites are not reliably running NTP, and a
+     * site whose clock is a few minutes behind the issuer must not fail closed
+     * on every call. Against a 24 hour window this margin costs nothing.
+     */
+    const AUTH_CLOCK_SKEW = 600;
+
+    /**
+     * Longest expiry an inbound auth header may claim, in seconds.
+     *
+     * This is deliberately not encryption_service::AUTH_LIFE_TIME. That
+     * constant is the lifetime this plugin stamps on its own outbound headers;
+     * inbound headers are minted by the analytics service, which uses a
+     * 24 hour window. Verifying against the outbound constant would reject
+     * every authenticated request the service sends.
+     *
+     * The bound exists to stop a captured header from staying replayable
+     * forever, so it has to be at least as long as the issuer's window;
+     * shortening it is a coordinated change on the service side first.
+     */
+    const AUTH_MAX_LIFE_TIME = DAYSECS;
+
+    /**
+     * Return the request's IntelliData auth header, or an empty string.
+     *
+     * @return string
+     */
+    public static function get_auth_header() {
+        $headers = DeprecatedHelper::getallheaders();
+
+        foreach (['Auth', 'auth', 'Authorization', 'authorization'] as $name) {
+            if (!empty($headers[$name])) {
+                return $headers[$name];
+            }
+        }
+
+        return '';
+    }
+
+    /**
+     * Is an IntelliData auth header present on this request?
+     *
+     * @return bool
+     */
+    public static function has_auth_header() {
+        return self::get_auth_header() !== '';
+    }
+
+    /**
+     * Validate the request's auth header.
      *
      * @return bool
      * @throws \moodle_exception
+     * @throws \dml_exception
      */
     public static function check_auth() {
 
         $encryptionservice = new encryption_service();
-        $headers = DeprecatedHelper::getallheaders();
-        $authheader = '';
+        $authheader = self::get_auth_header();
 
-        if (isset($headers['Auth'])) {
-            $authheader = $headers['Auth'];
-        } else if (isset($headers['auth'])) {
-            $authheader = $headers['auth'];
-        } else if (isset($headers['Authorization'])) {
-            $authheader = $headers['Authorization'];
-        } else if (isset($headers['authorization'])) {
-            $authheader = $headers['authorization'];
-        }
-
-        if (empty($authheader)) {
-            throw new \moodle_exception('Auth header required');
+        // These were thrown with an English sentence in the $errorcode
+        // position, so Moodle rendered "[[Auth header required]]" instead of the
+        // message.
+        if ($authheader === '') {
+            throw new \moodle_exception('error_authheaderrequired', 'local_intellidata');
         }
 
         $authheader = json_decode($encryptionservice->decrypt($authheader), true);
+
+        if (!is_array($authheader)) {
+            throw new \moodle_exception('error_invalidencryptioncredentials', 'local_intellidata');
+        }
+
         $identifier = !empty($authheader['clientidentifier']) ? $authheader['clientidentifier'] : '';
 
         if (!$identifier) {
-            throw new \moodle_exception('Invalid encryption credentials');
+            throw new \moodle_exception('error_invalidencryptioncredentials', 'local_intellidata');
         }
 
-        $exp = !empty($authheader['exp']) ? $authheader['exp'] : 0;
-        if ($exp < time()) {
-            throw new \moodle_exception('Authentication expired');
+        $exp = !empty($authheader['exp']) ? (int)$authheader['exp'] : 0;
+        $now = time();
+
+        // The exp claim was only checked against a lower bound, so it was
+        // unbounded above: a header minted with exp far in the future stayed
+        // replayable indefinitely. Bound it on both sides, against the
+        // issuer's window rather than this plugin's own outbound lifetime.
+        $maxexp = $now + self::AUTH_MAX_LIFE_TIME + self::AUTH_CLOCK_SKEW;
+
+        // Tolerance is applied to both bounds, so a clock difference in either
+        // direction is forgiven by the same margin.
+        if ($exp < $now - self::AUTH_CLOCK_SKEW || $exp > $maxexp) {
+            throw new \moodle_exception('error_authenticationexpired', 'local_intellidata');
         }
 
-        if ($identifier !== $encryptionservice->clientidentifier) {
-            throw new \moodle_exception('Invalid Authentication');
+        if (!hash_equals((string)$encryptionservice->clientidentifier, (string)$identifier)) {
+            throw new \moodle_exception('error_invalidauthentication', 'local_intellidata');
         }
 
         return true;

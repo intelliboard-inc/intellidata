@@ -25,6 +25,8 @@
 
 namespace local_intellidata\tools;
 
+use local_intellidata\helpers\DebugHelper;
+
 /**
  * Supernova sql reports API.
  *
@@ -67,15 +69,20 @@ class supernova_sql_reports_api {
         $url = rtrim($this->report->service, '/') . "/api/moodle/custom-sql-reports/{$this->report->external_identifier}/save";
         $client = clone $this->client;
         $response = json_decode($client->post($url, $data, [
-            'CURLOPT_SSL_VERIFYPEER' => false,
-            'CURLOPT_SSL_VERIFYHOST' => false,
+            // Certificate verification is left at core's defaults. Overriding
+            // CURLOPT_SSL_VERIFYHOST to false stopped libcurl checking that
+            // the certificate matched the host being contacted, and the host
+            // comes from the report's service column - a value save_report()
+            // accepts from the remote caller.
             'CURLOPT_HTTPHEADER' => ['Accept: application/json'],
         ]), true);
 
         if (empty($response['message']) || $response['message'] !== 'ok') {
+            // Was var_dump($response);exit; which dumped the raw response and
+            // halted the request mid-page, reachable by appending debug=1 to
+            // the report page. Log it instead.
             if ($this->debug) {
-                echo '<pre>';
-                var_dump($response);exit;
+                DebugHelper::error_log('supernova_sql_reports_api: ' . json_encode($response));
             }
 
             return false;
@@ -93,15 +100,20 @@ class supernova_sql_reports_api {
         $url = rtrim($this->report->service, '/') . "/api/moodle/custom-sql-reports/{$this->report->external_identifier}/delete";
         $client = clone $this->client;
         $response = json_decode($client->delete($url, [], [
-            'CURLOPT_SSL_VERIFYPEER' => false,
-            'CURLOPT_SSL_VERIFYHOST' => false,
+            // Certificate verification is left at core's defaults. Overriding
+            // CURLOPT_SSL_VERIFYHOST to false stopped libcurl checking that
+            // the certificate matched the host being contacted, and the host
+            // comes from the report's service column - a value save_report()
+            // accepts from the remote caller.
             'CURLOPT_HTTPHEADER' => ['Accept: application/json'],
         ]), true);
 
         if (empty($response['message']) || $response['message'] !== 'ok') {
+            // Was var_dump($response);exit; which dumped the raw response and
+            // halted the request mid-page, reachable by appending debug=1 to
+            // the report page. Log it instead.
             if ($this->debug) {
-                echo '<pre>';
-                var_dump($response);exit;
+                DebugHelper::error_log('supernova_sql_reports_api: ' . json_encode($response));
             }
 
             return false;

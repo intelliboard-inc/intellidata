@@ -67,30 +67,42 @@ class provider implements
      * @return  collection     A listing of user data stored through this system.
      */
     public static function get_metadata(collection $items): collection {
-        // The 'local_intellidata_tracking' table stores the metadata about what [managers] can see in the reports.
+        // Every column below is checked against db/install.xml. The previous
+        // declaration named four columns that do not exist on
+        // local_intellidata_tracking (rel, type, instance, timecreated) while
+        // omitting the ones that actually hold personal data, notably ip and
+        // useragent.
         $items->add_database_table('local_intellidata_tracking', [
             'userid' => 'privacy:metadata:local_intellidata_tracking:userid',
-            'rel' => 'privacy:metadata:local_intellidata_tracking:rel',
-            'type' => 'privacy:metadata:local_intellidata_tracking:type',
-            'instance' => 'privacy:metadata:local_intellidata_tracking:instance',
-            'timecreated' => 'privacy:metadata:local_intellidata_tracking:timecreated',
+            'courseid' => 'privacy:metadata:local_intellidata_tracking:courseid',
+            'page' => 'privacy:metadata:local_intellidata_tracking:page',
+            'param' => 'privacy:metadata:local_intellidata_tracking:param',
+            'visits' => 'privacy:metadata:local_intellidata_tracking:visits',
+            'timespend' => 'privacy:metadata:local_intellidata_tracking:timespend',
+            'firstaccess' => 'privacy:metadata:local_intellidata_tracking:firstaccess',
+            'lastaccess' => 'privacy:metadata:local_intellidata_tracking:lastaccess',
+            'timemodified' => 'privacy:metadata:local_intellidata_tracking:timemodified',
+            'useragent' => 'privacy:metadata:local_intellidata_tracking:useragent',
+            'ip' => 'privacy:metadata:local_intellidata_tracking:ip',
         ], 'privacy:metadata:local_intellidata_tracking');
 
-        // The 'local_intellidata_details' table stores the metadata about timespent per-hour.
+        // The 'local_intellidata_trdetails' table stores time spent per hour.
         $items->add_database_table('local_intellidata_trdetails', [
-            'logid' => 'privacy:metadata:local_intellidata_details:logid',
-            'visits' => 'privacy:metadata:local_intellidata_details:visits',
-            'timespend' => 'privacy:metadata:local_intellidata_details:timespend',
-            'timepoint' => 'privacy:metadata:local_intellidata_details:timepoint',
-        ], 'privacy:metadata:local_intellidata_details');
+            'logid' => 'privacy:metadata:local_intellidata_trdetails:logid',
+            'visits' => 'privacy:metadata:local_intellidata_trdetails:visits',
+            'timespend' => 'privacy:metadata:local_intellidata_trdetails:timespend',
+            'timepoint' => 'privacy:metadata:local_intellidata_trdetails:timepoint',
+            'timemodified' => 'privacy:metadata:local_intellidata_trdetails:timemodified',
+        ], 'privacy:metadata:local_intellidata_trdetails');
 
-        // The 'local_intellidata_logs' table stores information about timespent per-day.
+        // The 'local_intellidata_trlogs' table stores time spent per day.
         $items->add_database_table('local_intellidata_trlogs', [
-            'trackid' => 'privacy:metadata:local_intellidata_logs:trackid',
-            'visits' => 'privacy:metadata:local_intellidata_logs:visits',
-            'timespend' => 'privacy:metadata:local_intellidata_logs:timespend',
-            'timepoint' => 'privacy:metadata:local_intellidata_logs:timepoint',
-        ], 'privacy:metadata:local_intellidata_logs');
+            'trackid' => 'privacy:metadata:local_intellidata_trlogs:trackid',
+            'visits' => 'privacy:metadata:local_intellidata_trlogs:visits',
+            'timespend' => 'privacy:metadata:local_intellidata_trlogs:timespend',
+            'timepoint' => 'privacy:metadata:local_intellidata_trlogs:timepoint',
+            'timemodified' => 'privacy:metadata:local_intellidata_trlogs:timemodified',
+        ], 'privacy:metadata:local_intellidata_trlogs');
 
         // The 'local_intellidata_config' table stores information about plugin configuration.
         $items->add_database_table('local_intellidata_config', [
@@ -119,7 +131,33 @@ class provider implements
      * @return  contextlist   $contextlist  The contextlist containing the list of contexts used in this plugin.
      */
     public static function get_contexts_for_userid(int $userid): \core_privacy\local\request\contextlist {
-        return new contextlist();
+        $contextlist = new contextlist();
+
+        // This returned an empty contextlist, and core drops a component whose
+        // contextlist is empty (privacy/classes/manager.php), so the plugin was
+        // reporting that it holds nothing for anybody: a subject access request
+        // returned no IntelliData data and an erasure request never reached
+        // delete_data_for_user().
+        //
+        // The plugin's tracking tables are site-wide and keyed by user rather
+        // than owned by a course, so the system context is the honest place to
+        // declare them - and it is added only when the user actually has rows,
+        // so users with no tracking data are not reported as having any.
+        $sql = "SELECT ctx.id
+                  FROM {context} ctx
+                 WHERE ctx.contextlevel = :contextlevel
+                   AND EXISTS (
+                       SELECT 1
+                         FROM {local_intellidata_tracking} t
+                        WHERE t.userid = :userid
+                   )";
+
+        $contextlist->add_from_sql($sql, [
+            'contextlevel' => CONTEXT_SYSTEM,
+            'userid' => $userid,
+        ]);
+
+        return $contextlist;
     }
 
     /**
@@ -130,26 +168,61 @@ class provider implements
     public static function export_user_data(approved_contextlist $contextlist) {
         global $DB;
 
+        // The system context is the only one this plugin declares in
+        // get_contexts_for_userid(), so export against that one and ignore any
+        // other context the request happens to carry.
+        $systemcontext = null;
+        foreach ($contextlist->get_contexts() as $context) {
+            if ($context->contextlevel == CONTEXT_SYSTEM) {
+                $systemcontext = $context;
+                break;
+            }
+        }
+
+        if ($systemcontext === null) {
+            return;
+        }
+
         $user = $contextlist->get_user();
 
-        $records = $DB->get_records_sql("SELECT (CASE
-                WHEN d.id > 0 THEN d.id*l.id*t.id
-                WHEN l.id > 0 THEN l.id*t.id*t.id
-                    ELSE t.id
-            END) AS unid, t.*,
-            l.timepoint AS day_time,
-            l.visits AS day_visits,
-            l.timespend AS day_timespent,
-            l.timepoint AS hour_time,
-            d.visits AS hour_visits,
-            d.timespend AS hour_timespent
-            FROM {local_intellidata_tracking} t
-            LEFT JOIN {local_intellidata_trlogs} l ON l.trackid = t.id
-            LEFT JOIN {local_intellidata_trdetails} d ON d.logid = l.id
-            WHERE t.userid = :userid", ['userid' => $user->id]);
+        // The synthetic key was a product of the three row ids, which collides
+        // trivially (2*3*4 == 1*6*4) and so silently dropped rows from the
+        // keyed result. The rows are built into a plain list instead, and
+        // streamed so a heavily tracked user cannot exhaust memory.
+        $sql = "SELECT t.id AS trackingid,
+                       t.courseid,
+                       t.page,
+                       t.param,
+                       t.visits,
+                       t.timespend,
+                       t.firstaccess,
+                       t.lastaccess,
+                       t.timemodified,
+                       t.useragent,
+                       t.ip,
+                       l.id AS dayid,
+                       l.timepoint AS day_time,
+                       l.visits AS day_visits,
+                       l.timespend AS day_timespent,
+                       d.id AS hourid,
+                       d.timepoint AS hour_time,
+                       d.visits AS hour_visits,
+                       d.timespend AS hour_timespent
+                  FROM {local_intellidata_tracking} t
+             LEFT JOIN {local_intellidata_trlogs} l ON l.trackid = t.id
+             LEFT JOIN {local_intellidata_trdetails} d ON d.logid = l.id
+                 WHERE t.userid = :userid
+              ORDER BY t.id, l.id, d.id";
+
+        $records = [];
+        $recordset = $DB->get_recordset_sql($sql, ['userid' => $user->id]);
+        foreach ($recordset as $record) {
+            $records[] = $record;
+        }
+        $recordset->close();
 
         if (!empty($records)) {
-            \core_privacy\local\request\writer::with_context($context)
+            \core_privacy\local\request\writer::with_context($systemcontext)
                     ->export_data([], (object) [
                         'records' => $records,
                     ]);
@@ -165,7 +238,14 @@ class provider implements
     public static function delete_data_for_all_users_in_context(\context $context) {
         global $DB;
 
-        if ($context->contextlevel == CONTEXT_COURSE) {
+        if ($context->contextlevel == CONTEXT_SYSTEM) {
+            // Matches the system context declared in
+            // get_contexts_for_userid(): everything the plugin tracks is
+            // site-wide, so a system-context erasure clears all of it.
+            $DB->delete_records('local_intellidata_trdetails');
+            $DB->delete_records('local_intellidata_trlogs');
+            $DB->delete_records('local_intellidata_tracking');
+        } else if ($context->contextlevel == CONTEXT_COURSE) {
             $params = [
                 'courseid' => $context->instanceid,
             ];
@@ -223,7 +303,7 @@ class provider implements
         $items = $DB->get_records("local_intellidata_tracking", ['userid' => $userid]);
 
         foreach ($items as $item) {
-            $logs = $DB->get_records("local_intellidata_logs", ['trackid' => $item->id]);
+            $logs = $DB->get_records("local_intellidata_trlogs", ['trackid' => $item->id]);
 
             foreach ($logs as $log) {
                 $DB->delete_records('local_intellidata_trdetails', [
@@ -246,7 +326,12 @@ class provider implements
      */
     public static function get_users_in_context(userlist $userlist) {
         $context = $userlist->get_context();
-        if ($context->contextlevel == CONTEXT_COURSE) {
+        if ($context->contextlevel == CONTEXT_SYSTEM) {
+            // The plugin declares its tracking tables at system context in
+            // get_contexts_for_userid(), so it must answer for that context
+            // here too, otherwise the two directions disagree.
+            $userlist->add_from_sql('userid', "SELECT userid FROM {local_intellidata_tracking}", []);
+        } else if ($context->contextlevel == CONTEXT_COURSE) {
             $params = [
                 'courseid' => $context->instanceid,
             ];

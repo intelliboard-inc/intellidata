@@ -106,22 +106,38 @@ class surveyanswers extends \local_intellidata\entities\entity {
     public static function prepare_export_data($object, $fields = [], $table = '') {
         global $DB;
 
-        if (!isset($object->userid) || isset($object->survey) || isset($object->question)) {
+        // The guard used to return early whenever survey or question WAS set,
+        // and then the query below read exactly those two properties - so it
+        // only ran when they were absent and bound nulls, matching nothing.
+        // questiontext and questiontype are declared export properties of this
+        // entity, so the enrichment this method exists to do has never
+        // happened. Run the lookup when there is enough to identify the row:
+        // the primary key if we have it, otherwise the natural key.
+        $sql = 'SELECT sa.*, sq.text as questiontext, sq.type as questiontype
+                  FROM {survey_answers} sa
+             LEFT JOIN {survey_questions} sq ON sq.id = sa.question
+                 WHERE ';
+
+        if (!empty($object->id)) {
+            $params = ['id' => $object->id];
+            $sql .= 'sa.id = :id';
+        } else if (isset($object->userid, $object->time, $object->survey, $object->question)) {
+            $params = [
+                'time' => $object->time,
+                'userid' => $object->userid,
+                'survey' => $object->survey,
+                'question' => $object->question,
+            ];
+            // Qualified with the table alias rather than quoted: `time` is
+            // MySQL backtick syntax, which PostgreSQL and Oracle both reject
+            // outright, so survey answer export threw on any non-MySQL site.
+            $sql .= 'sa.time = :time AND sa.userid = :userid
+                       AND sa.survey = :survey AND sa.question = :question';
+        } else {
             return $object;
         }
 
-        $params = [
-            'time' => $object->time,
-            'userid' => $object->userid,
-            'survey' => $object->survey,
-            'question' => $object->question,
-        ];
-
-        $record = $DB->get_record_sql('SELECT sa.*, sq.text as questiontext, sq.type as questiontype
-                                             FROM {survey_answers} sa
-                                        LEFT JOIN {survey_questions} sq ON sq.id = sa.question
-                                            WHERE `time`=:time AND userid=:userid AND
-                                                   survey=:survey AND question=:question', $params);
+        $record = $DB->get_record_sql($sql, $params);
 
         if ($record) {
             return $record;

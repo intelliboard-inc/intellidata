@@ -194,7 +194,7 @@ class tracking_storage_repository {
                         }
                         $item['timespend'] += $record->timespend;
                         $item['ajaxrequest'] = min($item['ajaxrequest'], $record->ajaxrequest);
-
+                        unset($item);
                     } else {
                         $data[$record->userid][$record->page][$record->param][$record->table] = (array) $record;
                     }
@@ -206,26 +206,35 @@ class tracking_storage_repository {
                         }
                         $item['timespend'] += $record->timespend;
                         $item['ajaxrequest'] = min($item['ajaxrequest'], $record->ajaxrequest);
-
+                        unset($item);
                     } else {
                         $data[$record->userid][$record->page][$record->param][$record->table][$record->timepoint] =
                             (array)$record;
                     }
                 } else if ($record->table == 'details') {
-                    $recordtable = isset($data[$record->userid][$record->page][$record->param][$record->table]) ?
-                        $data[$record->userid][$record->page][$record->param][$record->table] : [];
+                    // This branch used to copy the subtree into $recordtable,
+                    // mutate the copy and never write it back, so every hourly
+                    // detail record read from file storage was discarded before
+                    // it reached the database. The tracking and logs branches
+                    // above already take a reference into $data; do the same.
+                    if (!isset($data[$record->userid][$record->page][$record->param][$record->table])) {
+                        $data[$record->userid][$record->page][$record->param][$record->table] = [];
+                    }
+                    $recordtable = &$data[$record->userid][$record->page][$record->param][$record->table];
+
                     if (isset($recordtable[$record->currentstamp][$record->timepoint])) {
-                        $item = &
-                            $recordtable[$record->currentstamp][$record->timepoint];
+                        $item = &$recordtable[$record->currentstamp][$record->timepoint];
                         if (isset($record->visits)) {
                             @$item['visits'] += $record->visits;
                         }
                         $item['timespend'] += $record->timespend;
                         $item['ajaxrequest'] = min($item['ajaxrequest'], $record->ajaxrequest);
-
+                        unset($item);
                     } else {
                         $recordtable[$record->currentstamp][$record->timepoint] = (array)$record;
                     }
+
+                    unset($recordtable);
                 }
             }
             if (!feof($handle) && $showdebug) {

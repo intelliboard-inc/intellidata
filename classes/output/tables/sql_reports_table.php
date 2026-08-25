@@ -66,6 +66,20 @@ class sql_reports_table extends \table_sql {
     }
 
     /**
+     * Column name.
+     *
+     * table_sql prints a defined column verbatim when the class declares no
+     * col_<name>() method, so the stored report name reached the page
+     * unescaped.
+     *
+     * @param $values
+     * @return string
+     */
+    public function col_name($values) {
+        return s($values->name);
+    }
+
+    /**
      * Column time created.
      *
      * @param $values

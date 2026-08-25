@@ -49,22 +49,22 @@ use local_intellidata\services\encryption_service;
 function local_intellidata_pluginfile($course, $cm, $context, $filearea, $args, $forcedownload, array $options = []) {
     global $CFG, $PAGE;
     require_once($CFG->dirroot . '/repository/lib.php');
-
+    
     // Clean any output buffers at the start to prevent corruption
     // This prevents "Unsupported redirect detected" errors in ZIP files
     while (ob_get_level() > 0) {
         ob_end_clean();
     }
-
+    
     // Get current URL
     $currenturl = $PAGE->url->out(false);
-
+    
     // Additional auth validation.
     // Check if this is API call (webservice) or regular web access
     $isapi = stristr($currenturl, '/webservice/pluginfile.php') ||
              stristr($currenturl, 'webservice') ||
-             (!empty($_SERVER['HTTP_AUTH']) || !empty($_SERVER['HTTP_AUTHORIZATION']));
-
+             apilib::has_auth_header();
+    
     if ($isapi) {
         try {
             apilib::check_auth();
@@ -103,7 +103,7 @@ function local_intellidata_pluginfile($course, $cm, $context, $filearea, $args, 
         send_file_not_found();
         return;
     }
-
+    
     if ($isapi) {
         send_stored_file($file, 86400, 0, $forcedownload, $options);
     } else {
@@ -126,7 +126,7 @@ function local_intellidata_pluginfile($course, $cm, $context, $filearea, $args, 
         while (ob_get_level() > 0) {
             ob_end_clean();
         }
-
+        
         send_file($tempfile, $filearea . '_' . $filename, 86400, 0, false, $forcedownload, '', true, $options);
         unlink($enczipfile);
         unlink($tempfile);

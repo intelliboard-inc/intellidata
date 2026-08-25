@@ -1596,8 +1596,16 @@ function xmldb_local_intellidata_upgrade($oldversion) {
     if ($oldversion < 2025022601) {
 
         try {
+            // The PostgreSQL branch named a column, time_points, that does not
+            // exist - it is timepoint, as db/install.xml declares. The
+            // statement threw, the surrounding catch swallowed it into
+            // DebugHelper::error_log() (itself a no-op unless debugenabled is
+            // on), and the savepoint below was written anyway, so on PostgreSQL
+            // this normalisation never happened and could never be retried.
+            // Sites that have already passed this savepoint are repaired by the
+            // 2026082402 step at the end of this file.
             $timestampu = $CFG->dbtype == DBHelper::POSTGRES_TYPE ?
-                'EXTRACT(EPOCH FROM (TO_TIMESTAMP(time_points)::DATE))' :
+                'EXTRACT(EPOCH FROM (TO_TIMESTAMP(timepoint)::DATE))' :
                 'UNIX_TIMESTAMP(DATE(FROM_UNIXTIME(timepoint)))';
 
             $DB->execute('UPDATE {local_intellidata_trlogs} SET timepoint = ' . $timestampu);
@@ -1704,5 +1712,190 @@ function xmldb_local_intellidata_upgrade($oldversion) {
         upgrade_plugin_savepoint(true, 2026021801, 'local', 'intellidata');
     }
 
+    if ($oldversion < 2026082401) {
+        // Settings that no longer exist. Left behind they would keep showing in
+        // the config report and, for webservicetoken, would keep a privileged
+        // credential in mdl_config_plugins after the code that used it is gone.
+        //
+        // 'debug' held the LTI debug flag and is deliberately NOT carried over
+        // to its new name. The old checkbox stored the literal string 'text'
+        // and lti_service read a key nothing ever wrote, so LTI debug output
+        // has always been off in practice; migrating the value would switch the
+        // manual debug launch page on for those sites at upgrade. The new
+        // ltidebug setting starts unset, and an administrator who wants debug
+        // output can now tick the box and have it work.
+        unset_config('webservicetoken', 'local_intellidata');
+        unset_config('ltiassigndefaultmethod', 'local_intellidata');
+        unset_config('debug', 'local_intellidata');
+
+        // Four TrackingHelper toggles passed set_config()'s arguments in the
+        // wrong order, so instead of writing local_intellidata settings they
+        // created plugin namespaces literally called 'enabled' and
+        // 'enabledtracking', each holding a 'local_intellidata' key.
+        // Scoped to name = 'local_intellidata' so only the rows this plugin
+        // created are removed, never a real setting that happens to live in a
+        // namespace of that name.
+        foreach (['enabled', 'enabledtracking'] as $junknamespace) {
+            $DB->delete_records('config_plugins', [
+                'plugin' => $junknamespace,
+                'name' => 'local_intellidata',
+            ]);
+        }
+
+        upgrade_plugin_savepoint(true, 2026082401, 'local', 'intellidata');
+    }
+
+    if ($oldversion < 2026082402) {
+        // Repair for the 2025022601 step, which left both engines wrong in
+        // different ways.
+        //
+        // Its PostgreSQL branch referenced a column that does not exist. That
+        // statement threw, the exception was swallowed, and the savepoint was
+        // written regardless - so no PostgreSQL site ever ran the
+        // normalisation, and none could retry it.
+        //
+        // Its MySQL branch ran, but normalised to midnight in the database
+        // session timezone rather than midnight UTC, which is what the
+        // application writes. On a server not running UTC it therefore moved
+        // every row - including rows that were already correct - to a day
+        // boundary the application will never produce again.
+        //
+        // Both are repaired the same way, so this is not gated by engine.
+        local_intellidata_normalise_trlogs_timepoint();
+
+        // The run_report() function now honours the active/inactive flag, which it never
+        // read before. Reports already stored on this site were created under
+        // the old behaviour, where status was set to 0 on every save and
+        // ignored at execution - so enforcing it without this would silently
+        // stop every existing report from returning data. Activate what is
+        // already there; from now on a newly pushed report has to be approved.
+        $DB->set_field('local_intellidata_reports', 'status', 1, ['status' => 0]);
+
+        // The external_identifier column is the lookup and upsert key for that table and
+        // had no index at all.
+        //
+        // reports_repository::update_or_create() is a read-then-write with no
+        // locking, and get_record() only raises a debugging notice when it
+        // matches more than one row, so duplicate identifiers are already
+        // reachable through concurrent saves - and the column is NOT NULL
+        // char(255), so '' is a legal duplicate value too. Adding the unique
+        // index without clearing them first would abort this step before its
+        // savepoint and leave the site stuck in "upgrade required" pending
+        // manual surgery on a customer database. Keep the highest id per
+        // identifier, which is the row update_or_create() would have found.
+        $duplicates = $DB->get_records_sql(
+            'SELECT external_identifier, MAX(id) AS keepid
+               FROM {local_intellidata_reports}
+           GROUP BY external_identifier
+             HAVING COUNT(id) > 1'
+        );
+
+        foreach ($duplicates as $duplicate) {
+            $DB->delete_records_select(
+                'local_intellidata_reports',
+                'external_identifier = :identifier AND id <> :keepid',
+                ['identifier' => $duplicate->external_identifier, 'keepid' => $duplicate->keepid]
+            );
+        }
+
+        $table = new xmldb_table('local_intellidata_reports');
+        $index = new xmldb_index('external_identifier_uix', XMLDB_INDEX_UNIQUE, ['external_identifier']);
+        if ($dbman->table_exists($table) && !$dbman->index_exists($table, $index)) {
+            $dbman->add_index($table, $index);
+        }
+
+        upgrade_plugin_savepoint(true, 2026082402, 'local', 'intellidata');
+    }
+
     return true;
+}
+
+/**
+ * Normalise local_intellidata_trlogs.timepoint to midnight UTC.
+ *
+ * Written as a batched loop rather than one statement: this
+ * table is one row per user per page per day, so on a large tenant a single
+ * rewriting UPDATE means a long lock, a large WAL burst and heavy table bloat,
+ * and because the savepoint is only reached afterwards, a web upgrade that hit
+ * max_execution_time would restart the whole thing on every retry.
+ *
+ * The WHERE clause makes the loop idempotent - a row already holding the
+ * normalised value is not rewritten - so a restart resumes rather than repeats.
+ *
+ * timemodified is advanced with the value, because it is the incremental
+ * export watermark: without that, Moodle would be normalised and the analytics
+ * warehouse would keep the old timepoints indefinitely, which defeats the
+ * purpose of normalising. Every repaired row therefore re-exports on the next
+ * run.
+ *
+ * Runs on every engine. PostgreSQL never ran the original step at all; MySQL
+ * ran it against the database session timezone instead of UTC, so a non-UTC
+ * MySQL server carries the same misalignment by a different route. The
+ * expression is integer arithmetic, so one pass repairs both, and a site whose
+ * rows are already aligned matches nothing and is untouched.
+ *
+ * Note this is a one-time repair of stored history. It does not police
+ * intelliboard_tracking_service::copy_logs(), which copies timepoint verbatim
+ * out of local_intelliboard_logs and can therefore introduce misaligned rows
+ * after this has run.
+ *
+ * @return void
+ */
+function local_intellidata_normalise_trlogs_timepoint() {
+    global $DB;
+
+    // The target is midnight UTC, because that is what the application writes.
+    // storage_repository::get_today_time() is
+    // new \DateTime('today', new \DateTimeZone('UTC')), and it is the source of
+    // timepoint for all three tracking storage repositories - so a stored value
+    // is always an exact multiple of 86400. Rows predating that change hold a
+    // full timestamp, which is what this repair collapses.
+    //
+    // Neither engine's date functions are the reference. Both
+    // UNIX_TIMESTAMP(DATE(FROM_UNIXTIME(timepoint))) and
+    // DATE_TRUNC('day', TO_TIMESTAMP(timepoint)) resolve the day in the
+    // *session* timezone, and Moodle never issues SET TimeZone. On a server not
+    // running UTC either one rewrites rows to a value the application will never
+    // produce again: the next write for that user and day computes midnight UTC,
+    // does not match the repaired row, and inserts a second trlogs row for the
+    // same day. trackid_timepoint_idx is not unique, so nothing prevents it, and
+    // both rows then export.
+    //
+    // Integer arithmetic avoids the question entirely. The modulo goes through
+    // sql_modulo() rather than a literal %, because this step is not gated by
+    // engine any more and Oracle has no % operator - it spells modulo
+    // MOD(a, b), and would raise ORA-00911 here. Nothing catches that, so it
+    // would propagate before the savepoint below is written and leave the site
+    // in "upgrade required".
+    $modulo = $DB->sql_modulo('timepoint', 86400);
+    $normalised = "timepoint - $modulo";
+    $batchsize = 20000;
+
+    $minid = (int)$DB->get_field_sql('SELECT MIN(id) FROM {local_intellidata_trlogs}');
+    $maxid = (int)$DB->get_field_sql('SELECT MAX(id) FROM {local_intellidata_trlogs}');
+
+    if (!$maxid) {
+        return;
+    }
+
+    $now = time();
+
+    for ($from = $minid; $from <= $maxid; $from += $batchsize) {
+        // The upgrade-context helper: it raises the time limit and keeps the
+        // upgrade progress bar alive, so a large table cannot silently die on
+        // max_execution_time part way through.
+        upgrade_set_timeout(600);
+
+        $DB->execute(
+            "UPDATE {local_intellidata_trlogs}
+                SET timepoint = $normalised,
+                    timemodified = :now
+              WHERE id >= :fromid
+                AND id < :toid
+                AND $modulo <> 0",
+            ['now' => $now, 'fromid' => $from, 'toid' => $from + $batchsize]
+        );
+
+        mtrace('local_intellidata: normalised trlogs.timepoint up to id ' . ($from + $batchsize - 1));
+    }
 }

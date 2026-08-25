@@ -47,4 +47,12 @@ $definitions = [
         'simplekeys' => true,
         'staticacceleration' => true,
     ],
+    // Output column names of each stored SQL report, keyed by report id and a
+    // hash of the report body. Used to resolve a caller-supplied search column
+    // against the report's own columns without re-running the report.
+    'sqlreportcolumns' => [
+        'mode' => cache_store::MODE_APPLICATION,
+        'simplekeys' => true,
+        'staticacceleration' => true,
+    ],
 ];

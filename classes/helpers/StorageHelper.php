@@ -104,6 +104,41 @@ class StorageHelper {
     }
 
     /**
+     * Count exported rows in a storage file, and how many of them are creations.
+     *
+     * @param string $filepath
+     * @return array ['total' => int, 'created' => int]
+     */
+    public static function count_records_in_file($filepath) {
+        $counts = ['total' => 0, 'created' => 0];
+
+        $handle = @fopen($filepath, 'r');
+        if ($handle === false) {
+            return $counts;
+        }
+
+        while (($line = fgets($handle)) !== false) {
+            $line = rtrim($line, "\r\n");
+
+            if ($line === '') {
+                continue;
+            }
+
+            $counts['total']++;
+
+            // The crud marker is the last field of every exported row, so a
+            // created record is a line ending in ",c" - what the grep matched.
+            if (substr($line, -2) === ',' . EventsHelper::CRUD_CREATED) {
+                $counts['created']++;
+            }
+        }
+
+        fclose($handle);
+
+        return $counts;
+    }
+
+    /**
      * Save file.
      *
      * @param $params
@@ -128,17 +163,14 @@ class StorageHelper {
             return null;
         }
 
-        $countcreated = 0;
-        exec('grep ",c$" ' . $tempfile . ' | wc -l', $res);
-        if (is_array($res) && isset($res[0])) {
-            $countcreated = $res[0];
-        }
-
-        $countexported = 0;
-        exec('cat ' . $tempfile . ' | wc -l', $res);
-        if (is_array($res) && isset($res[0])) {
-            $countexported = $res[0] + 1;
-        }
+        // Was two exec() calls - grep ",c$" | wc -l and cat | wc -l - with the
+        // temp path interpolated unquoted into a shell string. Both are a
+        // single streaming pass in PHP, which also works where exec() is
+        // disabled by disable_functions, where the temp path contains a space,
+        // and on Windows.
+        $counts = self::count_records_in_file($tempfile);
+        $countcreated = $counts['created'];
+        $countexported = $counts['total'];
 
         // Firstly zip temp file.
         $zipfilename = $filename.'.zip';
@@ -278,8 +310,9 @@ class StorageHelper {
      * @return false|string
      */
     public static function generate_filename($length = 16) {
-        $bytes = openssl_random_pseudo_bytes($length, $cstrong);
-        return substr(bin2hex($bytes), 0, $length);
+        // The $cstrong flag was passed but never checked, so weak material would have
+        // been used silently. random_bytes() throws instead.
+        return substr(bin2hex(random_bytes($length)), 0, $length);
     }
 
     /**
@@ -311,9 +344,23 @@ class StorageHelper {
 
         $fs = get_file_storage();
 
-        if ($filerecord = $DB->get_record('files', ['id' => $id])) {
-            $fs->get_file_instance($filerecord)->delete();
+        // Scoped to this plugin's own files. The lookup used to be
+        // $DB->get_record('files', ['id' => $id]) with no component check,
+        // reached from logs/index.php with the file id straight off the query
+        // string - so local/intellidata:viewlogs, a capability declared read,
+        // could delete any row in mdl_files: any user avatar, any assignment
+        // submission, any backup. The only legitimate caller lists this
+        // plugin's own export archives, so nothing is lost by the scope.
+        $filerecord = $DB->get_record('files', [
+            'id' => $id,
+            'component' => 'local_intellidata',
+        ]);
+
+        if (!$filerecord) {
+            throw new \moodle_exception('filenotexists', 'local_intellidata');
         }
+
+        $fs->get_file_instance($filerecord)->delete();
 
         return true;
     }

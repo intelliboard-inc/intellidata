@@ -104,14 +104,31 @@ class cache_storage_repository extends storage_repository {
             }
 
             if (!$cache->set($userkey, $cacherecord)) {
-                // Something wrong.
+                // Something wrong. This branch used to log and then fall
+                // through without committing and without rolling back, leaving
+                // the transaction open until scope exit. Roll back explicitly:
+                // the cache write is what makes the rows reachable again, so
+                // committing them without it would strand them.
                 DebugHelper::error_log("IntelliData compress tracking: error save track to cache,
                     key:{$userkey}, data:" . json_encode($cacherecord));
+
+                if (!$transaction->is_disposed()) {
+                    $transaction->rollback(
+                        new \moodle_exception('failed_write_cache', 'local_intellidata', '', $userkey)
+                    );
+                }
             } else {
                 $transaction->allow_commit();
             }
 
         } catch (\Exception $e) {
+            // Core's rollback() only re-raises when the transaction is not the
+            // innermost one on the stack, so in the normal case a failure
+            // here was completely silent: no exception, no log entry, no
+            // return value. Log before rolling back, because anything after
+            // the rollback may be unreachable.
+            DebugHelper::error_log($e->getMessage());
+
             if (!empty($transaction) && !$transaction->is_disposed()) {
                 $transaction->rollback($e);
             }
@@ -150,6 +167,13 @@ class cache_storage_repository extends storage_repository {
                 }
                 $transaction->allow_commit();
             } catch (\Exception $e) {
+                // Core's rollback() only re-raises when the transaction is not the
+                // innermost one on the stack, so in the normal case a failure
+                // here was completely silent: no exception, no log entry, no
+                // return value. Log before rolling back, because anything after
+                // the rollback may be unreachable.
+                DebugHelper::error_log($e->getMessage());
+
                 if (!empty($transaction) && !$transaction->is_disposed()) {
                     $transaction->rollback($e);
                 }

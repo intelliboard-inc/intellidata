@@ -96,14 +96,14 @@ class migration extends \local_intellidata\entities\migration {
             "SELECT COUNT(s.id) as recordscount" :
             "SELECT s.id, s.assignment, s.userid, s.timemodified, s.status, s.attemptnumber,
                     ag.grade, ag.timemodified as feedback_at, ag.grader as feedback_by,
-                    sс.commenttext as feedback, subt.submission_type, ag.id as grade_instance_id";
+                    sc.commenttext as feedback, subt.submission_type, ag.id as grade_instance_id";
 
         $sql = "$select
                   FROM {assign_submission} s
              LEFT JOIN {assign_grades} ag ON ag.assignment = s.assignment
                    AND ag.userid = s.userid AND ag.attemptnumber = s.attemptnumber
-             LEFT JOIN {assignfeedback_comments} sс ON sс.assignment = ag.assignment
-                   AND sс.grade = ag.id
+             LEFT JOIN {assignfeedback_comments} sc ON sc.assignment = ag.assignment
+                   AND sc.grade = ag.id
              LEFT JOIN ($submissionssql) subt ON subt.submission_id = s.id
                  WHERE $where";
 

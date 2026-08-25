@@ -50,19 +50,19 @@ class TrackingHelper {
     /**
      * Enable plugin.
      *
-     * @return bool
+     * @return void
      */
     public static function enable() {
-        return set_config('local_intellidata', true, 'enabled');
+        SettingsHelper::set_setting('enabled', 1);
     }
 
     /**
      * Disable plugin.
      *
-     * @return bool
+     * @return void
      */
     public static function disable() {
-        return set_config('local_intellidata', false, 'enabled');
+        SettingsHelper::set_setting('enabled', 0);
     }
 
     /**
@@ -121,19 +121,19 @@ class TrackingHelper {
     /**
      * Enable tracking.
      *
-     * @return bool
+     * @return void
      */
     public static function enable_tracking() {
-        return set_config('local_intellidata', true, 'enabledtracking');
+        SettingsHelper::set_setting('enabledtracking', 1);
     }
 
     /**
      * Disable tracking.
      *
-     * @return bool
+     * @return void
      */
     public static function disable_tracking() {
-        return set_config('local_intellidata', false, 'enabledtracking');
+        SettingsHelper::set_setting('enabledtracking', 0);
     }
 
     /**

@@ -70,16 +70,21 @@ class tracking_repository {
         $data->page         = $pageparams['page'];
         $data->param        = $pageparams['param'];
         $data->timespend    = $pageparams['time'];
-        $data->useragent    = !empty($pageparams['useragent']) ? $pageparams['useragent'] :
-            (isset($_SERVER['HTTP_USER_AGENT']) ? $_SERVER['HTTP_USER_AGENT'] : '');
+        // get_user_agent_string() returns false when the request carried no
+        // User-Agent header, and the DML layer casts a bool to int - so without
+        // the fallback this char column would store the string '0' rather than
+        // an empty value.
+        $data->useragent    = !empty($pageparams['useragent']) ? $pageparams['useragent']
+            : (\core_useragent::get_user_agent_string() ?: '');
 
-        if (isset($_SERVER["HTTP_X_FORWARDED_FOR"])) {
-            $ip = $_SERVER["HTTP_X_FORWARDED_FOR"];
-        } else if (isset($_SERVER["HTTP_CLIENT_IP"])) {
-            $ip = $_SERVER["HTTP_CLIENT_IP"];
-        } else {
-            $ip = $_SERVER["REMOTE_ADDR"];
-        }
+        // Core's getremoteaddr() replaces a hand-rolled X-Forwarded-For /
+        // HTTP_CLIENT_IP / REMOTE_ADDR chain. Both of those headers are
+        // client-supplied and were trusted unconditionally, so every address
+        // recorded here and exported to the analytics service was spoofable by
+        // sending one request header. getremoteaddr() honours
+        // $CFG->getremoteaddrconf, which lets the operator decide which proxy
+        // headers are trustworthy for their own topology.
+        $ip = getremoteaddr();
         $data->ip = ($ip) ? $ip : 0;
 
         try {

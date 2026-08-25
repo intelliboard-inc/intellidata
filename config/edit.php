@@ -23,6 +23,7 @@
  * @license    http://www.gnu.org/copyleft/gpl.html GNU GPL v3 or later
  */
 
+use local_intellidata\helpers\DBManagerHelper;
 use local_intellidata\helpers\TrackingHelper;
 use local_intellidata\output\forms\local_intellidata_edit_config;
 use local_intellidata\services\datatypes_service;
@@ -68,6 +69,24 @@ if ($action == 'reset') {
     redirect($returnurl, get_string('resetmsg', 'local_intellidata'));
 
 } else if ($action == 'createindex') {
+
+    $alldatatypes = datatypes_service::get_all_datatypes();
+    $indextable = !empty($alldatatypes[$datatype]['table']) ? $alldatatypes[$datatype]['table'] : '';
+
+    // Nearly every datatype maps to a table this plugin does not own - user,
+    // course, grade_grades, logstore_standard_log and the rest. Adding an index
+    // there is a schema change to somebody else's table, made at runtime from a
+    // web request. Report the statement instead, so whoever owns the database
+    // can review and apply it.
+    if (!DBManagerHelper::is_plugin_owned_table($indextable)) {
+        redirect(
+            $returnurl,
+            get_string('indexnotpluginowned', 'local_intellidata',
+                DBManagerHelper::get_index_ddl($indextable, $record->get('timemodified_field'))),
+            null,
+            \core\output\notification::NOTIFY_WARNING
+        );
+    }
 
     $record->set('tableindex', $record->get('timemodified_field'));
     $configrepository->save($record->get('datatype'), $record->to_record());

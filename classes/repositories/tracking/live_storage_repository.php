@@ -26,6 +26,7 @@
 
 namespace local_intellidata\repositories\tracking;
 
+use local_intellidata\helpers\DebugHelper;
 use local_intellidata\helpers\SettingsHelper;
 
 /**
@@ -102,6 +103,13 @@ class live_storage_repository extends storage_repository {
 
             $transaction->allow_commit();
         } catch (\Exception $e) {
+            // Core's rollback() only re-raises when the transaction is not the
+            // innermost one on the stack, so in the normal case a failure
+            // here was completely silent: no exception, no log entry, no
+            // return value. Log before rolling back, because anything after
+            // the rollback may be unreachable.
+            DebugHelper::error_log($e->getMessage());
+
             if (!empty($transaction) && !$transaction->is_disposed()) {
                 $transaction->rollback($e);
             }

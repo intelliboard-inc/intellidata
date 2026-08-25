@@ -1,6 +1,27 @@
 var OTHERDATA = this.INIT_OTHERDATA;
 
+// Captured at the top level, where `this` is the compiled component and the
+// app's injected providers are reachable. The accessor has been renamed across
+// app releases, so try both and treat "not available" as "do not track" rather
+// than falling back to a credential the server should not be sending.
+var SITES_PROVIDER = this.CoreSitesProvider || this.CoreSites || null;
+
 (function() {
+
+    /**
+     * Resolve the app's current authenticated site, or null when unavailable.
+     *
+     * @returns {Object|null}
+     */
+    function getCurrentSite() {
+        if (!SITES_PROVIDER || typeof SITES_PROVIDER.getCurrentSite !== 'function') {
+            return null;
+        }
+
+        var site = SITES_PROVIDER.getCurrentSite();
+
+        return (site && typeof site.write === 'function') ? site : null;
+    }
 
     var PAGE_URL = '';
     var PAGETYPES = {
@@ -158,26 +179,28 @@ var OTHERDATA = this.INIT_OTHERDATA;
             return;
         }
 
-        fetch(OTHERDATA.api_url, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/x-www-form-urlencoded'
-            },
-            body: new URLSearchParams({
-                'wstoken': OTHERDATA.token,
-                'wsfunction': 'local_intellidata_save_mobile_tracking',
-                'moodlewsrestformat': 'json',
-                'user': OTHERDATA.user_id,
-                'page': PARAMS.PAGE,
-                'param': PARAMS.PARAM,
-                'time': TRACKING.LASTTIMETRACK,
-                'init': init,
-            })
+        // The call goes through the app's own authenticated site object. It used
+        // to be a raw fetch() to /webservice/rest/server.php carrying a
+        // wstoken that the server handed to every app session, which meant the
+        // site's shared service token was readable by any logged-in user. The
+        // site object signs the request with the current user's own token, so
+        // no credential has to be shipped to the client at all, and the server
+        // no longer trusts a client-supplied user id.
+        var site = getCurrentSite();
+
+        if (!site) {
+            console.error('IntelliData: no authenticated site available, tracking skipped');
+            return;
+        }
+
+        site.write('local_intellidata_save_mobile_tracking', {
+            page: PARAMS.PAGE,
+            param: PARAMS.PARAM,
+            time: TRACKING.LASTTIMETRACK,
+            init: init,
         })
-            .then(response => response.json())
             .then(data => {
                 TRACKING.LASTTIMETRACK = data.time;
-                console.log('Server response:', data);
             })
             .catch(error => console.error('Send ajax request error:', error));
     }

@@ -47,7 +47,7 @@ class observer {
             $items = $DB->get_records("local_intellidata_tracking", ['userid' => $userid]);
 
             foreach ($items as $item) {
-                $logs = $DB->get_records("local_intellidata_logs", ['trackid' => $item->id]);
+                $logs = $DB->get_records("local_intellidata_trlogs", ['trackid' => $item->id]);
 
                 foreach ($logs as $log) {
                     $DB->delete_records('local_intellidata_trdetails', [

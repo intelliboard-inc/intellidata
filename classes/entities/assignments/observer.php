@@ -25,6 +25,7 @@
 
 namespace local_intellidata\entities\assignments;
 
+use local_intellidata\helpers\DebugHelper;
 use local_intellidata\helpers\DBManagerHelper;
 use local_intellidata\helpers\TrackingHelper;
 use local_intellidata\services\events_service;
@@ -242,6 +243,12 @@ class observer {
 
                 return (isset($record->submission_type)) ? $record->submission_type : '';
             } catch (\Throwable $e) {
+                // The submission-type query is assembled from whichever
+                // assignsubmission_* subplugin tables exist, so a failure here
+                // means a missing or unexpected table rather than a broken
+                // export - degrade to an empty type, but say so.
+                DebugHelper::error_log('Assignment submission type lookup failed: ' . $e->getMessage());
+
                 return '';
             }
         }

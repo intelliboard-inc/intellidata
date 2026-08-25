@@ -14,7 +14,6 @@
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
-use core\task\manager;
 use local_intellidata\api\apilib;
 use local_intellidata\services\encryption_service;
 use local_intellidata\helpers\SettingsHelper;
@@ -248,13 +247,13 @@ class local_intellidata_configlib extends external_api {
             $encryptionservice = new encryption_service();
 
             return [
-                'data' => $encryptionservice->encrypt('Datatype successfully resetted'),
+                'data' => $encryptionservice->encrypt(get_string('datatypereset', ParamsHelper::PLUGIN)),
                 'status' => apilib::STATUS_SUCCESS,
             ];
         }
 
         return [
-            'data' => 'Datatype not enabled for export.',
+            'data' => get_string('error_datatypenotenabled', ParamsHelper::PLUGIN),
             'status' => apilib::STATUS_ERROR,
         ];
     }
@@ -314,7 +313,7 @@ class local_intellidata_configlib extends external_api {
         $encryptionservice = new encryption_service();
 
         return [
-            'data' => $encryptionservice->encrypt('Migration successfully restarted'),
+            'data' => $encryptionservice->encrypt(get_string('migrationrestarted', ParamsHelper::PLUGIN)),
             'status' => apilib::STATUS_SUCCESS,
         ];
     }
@@ -365,37 +364,11 @@ class local_intellidata_configlib extends external_api {
         $context = context_system::instance();
         self::validate_context($context);
 
-        $tasksmanager = new core\task\manager();
-
-        if (!method_exists($tasksmanager, 'get_scheduled_task') ||
-            !method_exists($tasksmanager, 'is_runnable') ||
-            !method_exists($tasksmanager, 'run_from_cli')) {
-
-            return [
-                'data' => "Tasks manager outdated",
-                'status' => apilib::STATUS_ERROR,
-            ];
-        }
-
         $taskname = TasksHelper::TASK_CLASS_MIGRATIONS;
         $task = \core\task\manager::get_scheduled_task($taskname);
         if (!$task) {
             return [
-                'data' => "Task '$taskname' not found",
-                'status' => apilib::STATUS_ERROR,
-            ];
-        }
-
-        if (!\core\task\manager::is_runnable()) {
-            return [
-                'data' => get_string('cannotfindthepathtothecli', 'tool_task'),
-                'status' => apilib::STATUS_ERROR,
-            ];
-        }
-
-        if (!$task->can_run()) {
-            return [
-                'data' => get_string('nopermissions', 'error'),
+                'data' => get_string('error_tasknotfound', ParamsHelper::PLUGIN, $taskname),
                 'status' => apilib::STATUS_ERROR,
             ];
         }
@@ -403,20 +376,31 @@ class local_intellidata_configlib extends external_api {
         // Validate is task is already running.
         if (TasksHelper::is_task_running($task)) {
             return [
-                'data' => 'Task already running',
+                'data' => get_string('error_taskalreadyrunning', ParamsHelper::PLUGIN),
                 'status' => apilib::STATUS_ERROR,
             ];
         }
 
-        // Run task.
-        ob_start();
-        \core\task\manager::run_from_cli($task);
-        $output = ob_get_clean();
+        // Scheduled, not run inline.
+        //
+        // This used to call \core\task\manager::run_from_cli($task) from inside
+        // the web request, buffering the whole migration's mtrace() output with
+        // ob_start() and returning it. A full migration is an export of every
+        // migrating datatype - potentially hours and gigabytes - so the request
+        // blocked for its entire duration, with no time limit and the output
+        // accumulating in memory.
+        //
+        // The migration task ships disabled, so enabling it is part of starting
+        // it: this is exactly what the Migrations page's own "enable migration"
+        // action does, and what the reset_migration function beside this one
+        // already did. Progress is observable through get_running_tasks,
+        // get_tasks_logs and calculate_migration_progress.
+        MigrationHelper::enabled_migration_task();
 
         $encryptionservice = new encryption_service();
 
         return [
-            'data' => $encryptionservice->encrypt($output),
+            'data' => $encryptionservice->encrypt(get_string('migrationscheduled', ParamsHelper::PLUGIN)),
             'status' => apilib::STATUS_SUCCESS,
         ];
     }
@@ -571,7 +555,7 @@ class local_intellidata_configlib extends external_api {
                     'status' => apilib::STATUS_SUCCESS,
                 ];
             }
-        } catch (Exception $e) {
+        } catch (\Exception $e) {
             return [
                 'data' => $e->getMessage(),
                 'status' => apilib::STATUS_ERROR,
@@ -741,7 +725,7 @@ class local_intellidata_configlib extends external_api {
             datatypes_service::get_datatypes(true, true);
 
             return [
-                'data' => 'Updated',
+                'data' => get_string('configurationsaved', ParamsHelper::PLUGIN),
                 'status' => apilib::STATUS_SUCCESS,
             ];
         } catch (\moodle_exception $e) {
@@ -819,7 +803,7 @@ class local_intellidata_configlib extends external_api {
         if (!$record) {
             return [
                 'status' => apilib::STATUS_ERROR,
-                'data' => 'Datatype config not found.',
+                'data' => get_string('error_datatypeconfignotfound', ParamsHelper::PLUGIN),
             ];
         }
         $isrequired = $record->is_required_by_default();

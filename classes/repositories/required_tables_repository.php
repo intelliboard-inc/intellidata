@@ -25,6 +25,7 @@
 
 namespace local_intellidata\repositories;
 
+use local_intellidata\helpers\EventsHelper;
 use local_intellidata\services\datatypes_service;
 
 /**
@@ -123,7 +124,10 @@ class required_tables_repository extends base_tables_repository {
             $entityfields['crud'] = [
                 'type' => PARAM_TEXT,
                 'description' => 'Event crud.',
-                'default' => 'с',
+                // Cyrillic es (U+0441) where the Latin CRUD "created" marker
+                // was intended. This default is published to the analytics
+                // service through get_dbschema_unified().
+                'default' => EventsHelper::CRUD_CREATED,
                 'null' => false,
             ];
 

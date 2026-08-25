@@ -103,7 +103,7 @@ class roleassignment extends \local_intellidata\entities\entity {
         $context = $DB->get_record('context', ['id' => $object->contextid]);
         if ($context) {
             $object->courseid = $context->instanceid;
-            $object->contexttype = RolesHelper::get_contexttype($context->contextlevel);;
+            $object->contexttype = RolesHelper::get_contexttype($context->contextlevel);
         }
 
         return $object;

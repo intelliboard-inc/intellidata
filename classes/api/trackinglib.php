@@ -116,9 +116,13 @@ class local_intellidata_trackinglib extends external_api {
     public static function save_mobile_tracking_parameters() {
         return new external_function_parameters(
             [
-                'user' => new external_value(PARAM_INT, 'user identifier'),
+                // No user parameter. It used to be accepted from the caller and
+                // written straight through, so a token holder could attribute
+                // tracking to any user id on the site. The tracked user is the
+                // authenticated one. PARAM_INT on param matches
+                // save_tracking_parameters(); it was PARAM_RAW here only.
                 'page' => new external_value(PARAM_TEXT, 'page identifier'),
-                'param' => new external_value(PARAM_RAW, 'page param'),
+                'param' => new external_value(PARAM_INT, 'page param'),
                 'time' => new external_value(PARAM_INT, 'time',  VALUE_DEFAULT, 0),
                 'init' => new external_value(PARAM_INT, 'init',  VALUE_DEFAULT, 0),
             ]
@@ -139,11 +143,12 @@ class local_intellidata_trackinglib extends external_api {
      * @throws required_capability_exception
      * @throws restricted_context_exception
      */
-    public static function save_mobile_tracking($user, $page, $param, $time, $init) {
+    public static function save_mobile_tracking($page, $param, $time, $init) {
+        global $USER;
+
         $params = self::validate_parameters(
             self::save_mobile_tracking_parameters(),
             [
-                'user' => $user,
                 'page' => $page,
                 'param' => $param,
                 'time' => $time,
@@ -155,6 +160,9 @@ class local_intellidata_trackinglib extends external_api {
         $context = context_system::instance();
         self::validate_context($context);
         require_capability('local/intellidata:trackdata', $context);
+
+        // Resolved server-side, never taken from the request.
+        $params['user'] = $USER->id;
 
         $ajaxfrequency = (int)SettingsHelper::get_setting('ajaxfrequency');
         $time = $params['time'];

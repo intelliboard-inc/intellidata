@@ -26,8 +26,6 @@
 
 namespace local_intellidata\persistent;
 
-use mod_h5pactivity\event\statement_received_testcase;
-
 /**
  * Class storage
  *

@@ -51,8 +51,8 @@ if (!$report = $DB->get_record('local_intellidata_reports', ['id' => $id])) {
 
 $PAGE->navbar->add(get_string('sqlreports', 'local_intellidata'), new \moodle_url('/local/intellidata/sql_reports/index.php'));
 $PAGE->navbar->add($report->name);
-$PAGE->set_title($report->name);
-$PAGE->set_heading($report->name);
+$PAGE->set_title(format_string($report->name));
+$PAGE->set_heading(format_string($report->name));
 
 if ($delete && $report->id) {
     $PAGE->url->param('delete', 1);

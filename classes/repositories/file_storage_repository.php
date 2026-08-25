@@ -27,6 +27,7 @@
 namespace local_intellidata\repositories;
 
 use local_intellidata\helpers\DatatypesHelper;
+use local_intellidata\helpers\DebugHelper;
 use local_intellidata\helpers\StorageHelper;
 
 /**
@@ -169,7 +170,7 @@ class file_storage_repository {
                 return null;
             }
 
-            exec('for f in ' . $filesbyuser . '; do echo ""; cat $f; rm $f; done | tail -n +2 | tr -d \'\\0\' >> ' . $storagefile . '; echo "" >> ' . $storagefile . ';');
+            $this->merge_user_files($files, $storagefile);
         }
 
         StorageHelper::rename_file($storagefile, $tempfile);
@@ -188,6 +189,117 @@ class file_storage_repository {
         }
 
         return StorageHelper::save_file($params);
+    }
+
+    /**
+     * Append the per-user shard files onto the datatype's storage file.
+     *
+     * Replaces a shell pipeline
+     * (for f in ...; do echo ""; cat $f; rm $f; done | tail -n +2 | tr -d '\0'
+     * >> out; echo "" >> out) whose glob was interpolated unquoted, so it broke
+     * on any path containing a space and silently did nothing where the shell
+     * utilities were unavailable. exec()'s exit status was never checked, so
+     * those failures were invisible.
+     *
+     * Semantics preserved: shards are separated by a newline, the leading blank
+     * line the shell's first `echo ""` produced is dropped, NUL bytes are
+     * stripped, each shard is deleted as it is consumed so a concurrent writer
+     * starting a new shard is not clobbered, and the output ends with a
+     * newline. Content is streamed rather than read whole - these shards can be
+     * gigabytes.
+     *
+     * @param array $files Shard paths, as returned by glob().
+     * @param string $storagefile Destination path.
+     * @return void
+     * @throws \moodle_exception
+     */
+    private function merge_user_files(array $files, $storagefile) {
+        $out = @fopen($storagefile, 'a');
+        if ($out === false) {
+            throw new \moodle_exception('failed_write_file', 'local_intellidata', '', $storagefile);
+        }
+
+        try {
+            if (!flock($out, LOCK_EX)) {
+                throw new \moodle_exception('failed_write_file', 'local_intellidata', '', $storagefile);
+            }
+
+            // The append position is not something ftell() reports dependably
+            // on a handle opened 'a'. fstat() on the same handle, under the
+            // lock already held, answers the only question that matters here:
+            // whether this shard is the first thing in the file.
+            $stat = fstat($out);
+            $first = (isset($stat['size']) && (int)$stat['size'] === 0);
+
+            foreach ($files as $file) {
+                $in = @fopen($file, 'r');
+                if ($in === false) {
+                    DebugHelper::error_log('Failed to open tracking shard ' . $file);
+                    continue;
+                }
+
+                // The shell version emitted a blank line before every shard and
+                // then discarded the first one with tail -n +2, which amounts to
+                // a separator between shards only.
+                if (!$first) {
+                    fwrite($out, PHP_EOL);
+                }
+                $first = false;
+
+                // Where this shard starts in the output, so a failed copy can be
+                // rolled back. Without it the partial bytes ship and the next
+                // run appends the whole shard again, exporting the overlap twice.
+                //
+                // fstat(), not ftell(): on a handle opened 'a' the reported
+                // position is 0 rather than the size, so truncating to it would
+                // discard every shard already merged. Same reason the first-shard
+                // test above uses fstat.
+                $stat = fstat($out);
+                $shardstart = isset($stat['size']) ? (int)$stat['size'] : null;
+                $copied = true;
+
+                while (($chunk = fread($in, 262144)) !== false && $chunk !== '') {
+                    $payload = str_replace("\0", '', $chunk);
+                    if (fwrite($out, $payload) !== strlen($payload)) {
+                        $copied = false;
+                        break;
+                    }
+                }
+
+                // A read error is indistinguishable from end of file by the
+                // loop condition alone, so confirm the read reached the end.
+                if (!feof($in)) {
+                    $copied = false;
+                }
+
+                fclose($in);
+
+                // The shard is the only copy. Removing it after a short write or
+                // a read error - a full disk, most likely - loses that tracking
+                // permanently, so leave it for the next run.
+                if (!$copied) {
+                    // The exclusive lock is held for the whole merge, so nothing
+                    // else has written past this point.
+                    if ($shardstart !== null) {
+                        fflush($out);
+                        ftruncate($out, $shardstart);
+                    }
+
+                    DebugHelper::error_log('Incomplete copy of tracking shard, keeping it: ' . $file);
+                    continue;
+                }
+
+                if (!@unlink($file)) {
+                    DebugHelper::error_log('Failed to remove tracking shard ' . $file);
+                }
+            }
+
+            fwrite($out, PHP_EOL);
+            fflush($out);
+            flock($out, LOCK_UN);
+        } finally {
+            fclose($out);
+        }
     }
 
     /**

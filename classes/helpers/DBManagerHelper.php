@@ -143,13 +143,62 @@ class DBManagerHelper {
 
 
     /**
-     * Create DB index.
+     * Is this a table this plugin owns?
      *
-     * @param $key
-     * @return array
+     * A plugin owns its own tables and nothing else. Moodle core owns the core
+     * schema, and every other plugin owns its own - altering either from here
+     * means this plugin's schema changes are invisible to the owner's
+     * install.xml, survive this plugin's uninstall unless it happens to clean
+     * them up, and can collide with an index the owner adds later under the
+     * same name.
+     *
+     * @param string $tablename Table name without the prefix.
+     * @return bool
+     */
+    public static function is_plugin_owned_table($tablename) {
+        return strpos((string)$tablename, 'local_intellidata_') === 0;
+    }
+
+    /**
+     * The DDL that would add the index, for an administrator to hand to a DBA.
+     *
+     * @param string $tablename Table name without the prefix.
+     * @param string $indexname Column to index.
+     * @return string
+     */
+    public static function get_index_ddl($tablename, $indexname) {
+        global $CFG;
+
+        $prefixed = $CFG->prefix . $tablename;
+
+        return "CREATE INDEX {$prefixed}_{$indexname}_idx ON {$prefixed} ({$indexname});";
+    }
+
+    /**
+     * Create DB index on one of this plugin's own tables.
+     *
+     * Refuses any other table. The export filters on a datatype's
+     * timemodified field, so an unindexed column means a full scan, and this
+     * used to add the index wherever the datatype pointed - which for nearly
+     * every datatype is a core table such as user, course, grade_grades or
+     * logstore_standard_log. Schema changes to tables this plugin does not own
+     * are not this plugin's to make; get_index_ddl() gives an administrator the
+     * statement to hand to whoever does own the database.
+     *
+     * @param string $tablename
+     * @param string $indexname
+     * @return bool True when the index was created or already existed.
      */
     public static function create_index($tablename, $indexname) {
         global $DB;
+
+        if (!self::is_plugin_owned_table($tablename)) {
+            DebugHelper::error_log(
+                'Refused to create an index on ' . $tablename . ': not a local_intellidata table.'
+            );
+
+            return false;
+        }
 
         $dbman = $DB->get_manager();
 
@@ -158,13 +207,22 @@ class DBManagerHelper {
         if (!$dbman->index_exists($table, $index)) {
             $dbman->add_index($table, $index);
         }
+
+        return true;
     }
 
     /**
-     * Delete DB index.
+     * Delete a DB index this plugin recorded as having created.
      *
-     * @param $key
-     * @return array
+     * Unlike create_index(), this is not restricted to the plugin's own tables.
+     * Earlier releases did add indexes to core tables, and those are recorded in
+     * the plugin's own config; refusing to remove them would strand this
+     * plugin's schema changes on a customer's core tables permanently, which is
+     * worse than the cleanup. Nothing here creates such an index any more.
+     *
+     * @param string $tablename
+     * @param string $indexname
+     * @return void
      */
     public static function delete_index($tablename, $indexname) {
         global $DB;

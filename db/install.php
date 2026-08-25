@@ -25,8 +25,6 @@
 
 use local_intellidata\services\config_service;
 use local_intellidata\services\datatypes_service;
-use local_intellidata\services\intelliboard_service;
-use local_intellidata\helpers\DebugHelper;
 
 /**
  * Local IntelliData plugin installation script.
@@ -47,12 +45,16 @@ function xmldb_local_intellidata_install() {
     // Enable required native datatypes.
     datatypes_service::enable_required_native_datatypes();
 
-    // Send IB prospects.
-    try {
-        $ibservice = new intelliboard_service();
-        $ibservice->set_params_for_install();
-        $ibservice->send_request();
-    } catch (moodle_exception $e) {
-        DebugHelper::error_log($e->getMessage());
-    }
+    // No outbound call at install time.
+    //
+    // This used to POST the installing administrator's email address, the site
+    // URL, language, database engine, Moodle and plugin versions, the visible
+    // course count and the non-deleted user count to a hardcoded vendor
+    // endpoint (/api/prospects/moodle/). There was no consent prompt, no
+    // opt-out setting and no privacy notice, and it happened during install -
+    // before an administrator has had any opportunity to configure the plugin,
+    // so consent could not have been asked for even in principle. Nothing in
+    // the product depended on it: pairing is done with the API key and
+    // identifier the administrator enters, and the remote service can read
+    // site information through the authenticated API once paired.
 }

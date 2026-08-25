@@ -27,6 +27,7 @@ namespace local_intellidata\services;
 
 use local_intellidata\helpers\DBHelper;
 use local_intellidata\helpers\PageParamsHelper;
+use local_intellidata\helpers\ParamsHelper;
 use local_intellidata\helpers\SettingsHelper;
 use local_intellidata\helpers\TrackingHelper;
 
@@ -47,6 +48,14 @@ class intelliboard_tracking_service {
 
     /**
      * Copy type tracking.
+     */
+    /**
+     * Name of the setting holding the tracking state suspended by this task.
+     */
+    const SUSPENDED_TRACKING_SETTING = 'intelliboardcopysuspendedtracking';
+
+    /**
+     * Copy type Tracking.
      */
     const COPY_TYPE_TRACKING = 'tracking';
     /**
@@ -76,6 +85,23 @@ class intelliboard_tracking_service {
     public function copy_process() {
         if (!$this->intelliboard_is_enable()) {
             $this->finish();
+
+            // Returning matters here: finish() clears the copy type and
+            // disables the task, and falling through reaches first_start(),
+            // which sets the copy type again and switches site tracking off -
+            // and since the task is already disabled there is no later run to
+            // switch it back on.
+            return;
+        }
+
+        // Safety net. Tracking is only ever suspended for the duration of a
+        // copy, so if the marker survives with no copy in progress a previous
+        // run stopped part-way through finish(); restore it now rather than
+        // leaving site tracking off indefinitely.
+        $suspended = get_config(ParamsHelper::PLUGIN, self::SUSPENDED_TRACKING_SETTING);
+
+        if (!$this->get_copy_type_setting() && $suspended !== false) {
+            $this->resume_tracking();
         }
 
         if (SettingsHelper::get_setting('resetimporttrackingprogress') == 1) {
@@ -92,9 +118,6 @@ class intelliboard_tracking_service {
         }
 
         $copymethod = $this->get_copy_method();
-
-        // Disable IntelliBoard tracking.
-        $this->config_intelliboard_tracking(false);
 
         // True if last element copied.
         if ($this->{$copymethod}()) {
@@ -149,7 +172,7 @@ class intelliboard_tracking_service {
 
         $finish1 = $finish2 = false;
 
-        list($limit, $offset, $willprocessed) = $this->get_limit_data();
+        [$limit, $offset, $willprocessed] = $this->get_limit_data();
 
         if ($offset == 0) {
             mtrace("Start import 'user trackings' from IntelliBoard plugin!");
@@ -157,8 +180,7 @@ class intelliboard_tracking_service {
 
         mtrace("Import 'user trackings' records: from - " . $offset . ', to - ' . $willprocessed);
 
-        list($sql, $conditions) = $DB->get_in_or_equal(self::TRACKING_TYPES);
-        $querytrack = " {local_intelliboard_tracking} WHERE courseid IS NOT NULL AND page {$sql} ";
+        [$sql, $conditions] = $DB->get_in_or_equal(self::TRACKING_TYPES, SQL_PARAMS_NAMED, 'page');
 
         $sqltracking = "SELECT MAX(id) as id FROM {local_intellidata_tracking} WHERE page {$sql}";
         $lastidentifier = 0;
@@ -166,9 +188,34 @@ class intelliboard_tracking_service {
             $lastidentifier = $lasttracking->id ? : 0;
         }
 
-        $sqlhastracking = "SELECT id FROM {local_intelliboard_tracking} WHERE page {$sql} AND id > {$lastidentifier}";
-        if ($DB->record_exists_sql($sqlhastracking, $conditions)) {
-            $DB->execute("INSERT INTO {local_intellidata_tracking}
+        // LIMIT is not portable - Oracle needs FETCH FIRST and SQL Server needs
+        // TOP or OFFSET FETCH - and it cannot be used inside INSERT ... SELECT
+        // anyway. The batch is bounded by selecting this page's ids through the
+        // DML layer, which emits the right dialect, and then constraining the
+        // insert to that id range. $lastidentifier is bound rather than
+        // interpolated.
+        $batchparams = $conditions + ['lastid' => $lastidentifier];
+        $maxid = $this->get_batch_max_id(
+            "SELECT id
+               FROM {local_intelliboard_tracking}
+              WHERE courseid IS NOT NULL AND page {$sql} AND id > :lastid
+           ORDER BY id ASC",
+            $batchparams,
+            $limit
+        );
+
+        if ($maxid !== null) {
+            $useragentjson = $DB->sql_concat(
+                "'{\"browser\":\"'",
+                'useragent',
+                "'\",\"os\":\"'",
+                'useros',
+                "'\"}'"
+            );
+
+            $insertsql = "INSERT INTO {local_intellidata_tracking}
+                                (id, userid, courseid, page, param, visits, timespend,
+                                 firstaccess, lastaccess, timemodified, useragent, ip)
                                 SELECT
                                     id,
                                     userid,
@@ -180,24 +227,61 @@ class intelliboard_tracking_service {
                                     COALESCE(firstaccess, 0) AS firstaccess,
                                     COALESCE(lastaccess, 0) AS lastaccess,
                                     0 AS timemodified,
-                                    CONCAT('{\"browser\":\"', useragent, '\",\"os\":\"', useros, '\"}') AS useragent,
+                                    {$useragentjson} AS useragent,
                                     userip AS ip
-                                FROM {$querytrack}
-                                 AND id > {$lastidentifier}
-                                ORDER BY id ASC LIMIT {$limit}", $conditions);
+                                FROM {local_intelliboard_tracking}
+                                WHERE courseid IS NOT NULL AND page {$sql}
+                                  AND id > :lastid AND id <= :maxid";
+
+            $DB->execute($insertsql, $conditions + ['lastid' => $lastidentifier, 'maxid' => $maxid]);
         } else {
             // All data copied.
             $finish1 = true;
         }
 
-        list($sql, $conditions) = $DB->get_in_or_equal(self::TRACKING_TYPES, SQL_PARAMS_NAMED, 'param', false);
-        $querytrack = " {local_intelliboard_tracking} WHERE page {$sql} ";
+        [$sql, $conditions] = $DB->get_in_or_equal(self::TRACKING_TYPES, SQL_PARAMS_NAMED, 'param', false);
         $allcount = $DB->count_records_sql("SELECT COUNT(t.userid)
-                                                  FROM (SELECT userid FROM {$querytrack}
-                                              GROUP BY userid) t", $conditions);
+                                                  FROM (SELECT userid
+                                                          FROM {local_intelliboard_tracking}
+                                                         WHERE page {$sql}
+                                                      GROUP BY userid) t", $conditions);
         if ($offset < $allcount) {
-            $DB->execute("
+            // This statement aggregates per user, so the batch is a page of user
+            // ids rather than a range of row ids. LIMIT/OFFSET moves out of the
+            // INSERT ... SELECT and into a plain SELECT, where the DML layer
+            // renders it for the engine in use.
+            $userids = [];
+            $recordset = $DB->get_recordset_sql(
+                "SELECT lit.userid
+                   FROM {local_intelliboard_tracking} lit
+              LEFT JOIN {local_intellidata_tracking} lidt ON lidt.id = lit.id
+                  WHERE lit.page {$sql} AND lidt.id IS NULL
+               GROUP BY lit.userid
+               ORDER BY lit.userid ASC",
+                $conditions,
+                $offset,
+                $limit
+            );
+            foreach ($recordset as $record) {
+                $userids[] = $record->userid;
+            }
+            $recordset->close();
+
+            if ($userids) {
+                [$useridsql, $useridparams] = $DB->get_in_or_equal($userids, SQL_PARAMS_NAMED, 'uid');
+
+                $useragentjson = $DB->sql_concat(
+                    "'{\"browser\":\"'",
+                    'MAX(lit.useragent)',
+                    "'\",\"os\":\"'",
+                    'MAX(lit.useros)',
+                    "'\"}'"
+                );
+
+                $insertsql = "
                         INSERT INTO {local_intellidata_tracking}
+                                (id, userid, courseid, page, param, visits, timespend,
+                                 firstaccess, lastaccess, timemodified, useragent, ip)
                             SELECT
                                  MAX(lit.id) AS id,
                                  lit.userid,
@@ -209,13 +293,16 @@ class intelliboard_tracking_service {
                                  COALESCE(MIN(lit.firstaccess), 0) AS firstaccess,
                                  COALESCE(MAX(lit.lastaccess), 0) AS lastaccess,
                                  0 AS timemodified,
-                                 CONCAT('{\"browser\":\"', MAX(lit.useragent), '\",\"os\":\"', MAX(lit.useros), '\"}') AS useragent,
+                                 {$useragentjson} AS useragent,
                                  MAX(lit.userip) AS ip
                              FROM {local_intelliboard_tracking} lit
                         LEFT JOIN {local_intellidata_tracking} lidt ON lidt.id = lit.id
                             WHERE lit.page {$sql} AND lidt.id IS NULL
-                         GROUP BY lit.userid
-                    ORDER BY id ASC LIMIT {$limit} OFFSET {$offset}", $conditions);
+                              AND lit.userid {$useridsql}
+                         GROUP BY lit.userid";
+
+                $DB->execute($insertsql, $conditions + $useridparams);
+            }
         } else {
             // All data copied.
             $finish2 = true;
@@ -240,7 +327,7 @@ class intelliboard_tracking_service {
     public function copy_logs() {
         global $DB;
 
-        list($limit, $offset, $willprocessed) = $this->get_limit_data();
+        [$limit, $offset, $willprocessed] = $this->get_limit_data();
         if ($offset == 0) {
             mtrace("Start import 'user trackings logs' from IntelliBoard plugin!");
         }
@@ -252,19 +339,30 @@ class intelliboard_tracking_service {
             $lastidentifier = $lasttracking->id ? : 0;
         }
 
-        if ($DB->record_exists_sql("SELECT id FROM {local_intelliboard_logs} WHERE id > {$lastidentifier}")) {
-            $DB->execute("INSERT INTO {local_intellidata_trlogs}
+        // LIMIT is not portable and cannot be used inside INSERT ... SELECT.
+        // The batch is bounded by resolving this page's highest id through the
+        // DML layer and constraining the insert to that range instead.
+        // $lastidentifier is bound rather than interpolated.
+        $maxid = $this->get_batch_max_id(
+            "SELECT id FROM {local_intelliboard_logs} WHERE id > :lastid ORDER BY id ASC",
+            ['lastid' => $lastidentifier],
+            $limit
+        );
+
+        if ($maxid !== null) {
+            $insertsql = "INSERT INTO {local_intellidata_trlogs}
                                    SELECT *, 0 AS timemodified
                                      FROM {local_intelliboard_logs}
-                                     WHERE id > {$lastidentifier}
-                                      ORDER BY id ASC LIMIT {$limit}");
+                                    WHERE id > :lastid AND id <= :maxid";
+
+            $DB->execute($insertsql, ['lastid' => $lastidentifier, 'maxid' => $maxid]);
 
             $this->set_progress_limit($willprocessed);
             return false;
         }
 
         // All data copied.
-        list($sql, $conditions) = $DB->get_in_or_equal(self::TRACKING_TYPES, SQL_PARAMS_NAMED, 'param', false);
+        [$sql, $conditions] = $DB->get_in_or_equal(self::TRACKING_TYPES, SQL_PARAMS_NAMED, 'param', false);
         $ids = DBHelper::get_operator('GROUP_CONCAT', 'id', ['separator' => ',']);
         $duplicates = $DB->get_records_sql("
                     SELECT
@@ -280,7 +378,7 @@ class intelliboard_tracking_service {
             $newid = $record->id;
             $duplicates = array_diff($ids, [$record->id]);
 
-            list($sql, $conditions) = $DB->get_in_or_equal($duplicates, SQL_PARAMS_NAMED);
+            [$sql, $conditions] = $DB->get_in_or_equal($duplicates, SQL_PARAMS_NAMED);
             $conditions['newid'] = $newid;
 
             $DB->execute("UPDATE {local_intellidata_trlogs} SET trackid=:newid WHERE trackid {$sql}", $conditions);
@@ -296,7 +394,7 @@ class intelliboard_tracking_service {
             $items[] = $item->id;
 
             if ($i >= 500) {
-                list($sql, $conditions) = $DB->get_in_or_equal($items);
+                [$sql, $conditions] = $DB->get_in_or_equal($items);
                 $DB->execute("DELETE FROM {local_intellidata_trlogs} WHERE id {$sql}", $conditions);
                 $items = [];
                 $i = 1;
@@ -305,7 +403,7 @@ class intelliboard_tracking_service {
         }
 
         if (!empty($items)) {
-            list($sql, $conditions) = $DB->get_in_or_equal($items);
+            [$sql, $conditions] = $DB->get_in_or_equal($items);
             $DB->execute("DELETE FROM {local_intellidata_trlogs} WHERE id {$sql}", $conditions);
         }
 
@@ -322,7 +420,7 @@ class intelliboard_tracking_service {
     public function copy_details() {
         global $DB;
 
-        list($limit, $offset, $willprocessed) = $this->get_limit_data();
+        [$limit, $offset, $willprocessed] = $this->get_limit_data();
         if ($offset == 0) {
             mtrace("Start import 'user trackings log details' from IntelliBoard plugin!");
         }
@@ -334,12 +432,23 @@ class intelliboard_tracking_service {
             $lastidentifier = $lasttracking->id ? : 0;
         }
 
-        if ($DB->record_exists_sql("SELECT id FROM {local_intelliboard_details} WHERE id > {$lastidentifier}")) {
-            $DB->execute("INSERT INTO {local_intellidata_trdetails}
+        // LIMIT is not portable and cannot be used inside INSERT ... SELECT.
+        // The batch is bounded by resolving this page's highest id through the
+        // DML layer and constraining the insert to that range instead.
+        // $lastidentifier is bound rather than interpolated.
+        $maxid = $this->get_batch_max_id(
+            "SELECT id FROM {local_intelliboard_details} WHERE id > :lastid ORDER BY id ASC",
+            ['lastid' => $lastidentifier],
+            $limit
+        );
+
+        if ($maxid !== null) {
+            $insertsql = "INSERT INTO {local_intellidata_trdetails}
                                    SELECT *, 0 AS timemodified
                                      FROM {local_intelliboard_details}
-                                    WHERE id > {$lastidentifier}
-                                 ORDER BY id ASC LIMIT {$limit}");
+                                    WHERE id > :lastid AND id <= :maxid";
+
+            $DB->execute($insertsql, ['lastid' => $lastidentifier, 'maxid' => $maxid]);
 
             $this->set_progress_limit($willprocessed);
             return false;
@@ -355,7 +464,7 @@ class intelliboard_tracking_service {
             $items[] = $item->id;
 
             if ($i >= 500) {
-                list($sql, $conditions) = $DB->get_in_or_equal($items);
+                [$sql, $conditions] = $DB->get_in_or_equal($items);
                 $DB->execute("DELETE FROM {local_intellidata_trdetails} WHERE id {$sql}", $conditions);
                 $items = [];
                 $i = 1;
@@ -364,7 +473,7 @@ class intelliboard_tracking_service {
         }
 
         if (!empty($items)) {
-            list($sql, $conditions) = $DB->get_in_or_equal($items);
+            [$sql, $conditions] = $DB->get_in_or_equal($items);
             $DB->execute("DELETE FROM {local_intellidata_trdetails} WHERE id {$sql}", $conditions);
         }
 
@@ -393,9 +502,36 @@ class intelliboard_tracking_service {
     }
 
     /**
+     * Resolve the highest id in the next batch, or null when the batch is empty.
+     *
+     * Used to bound a bulk INSERT ... SELECT by an id range, because LIMIT is
+     * not portable and is not valid inside INSERT ... SELECT. The limit is
+     * applied here, on a plain SELECT, where the DML layer renders it for the
+     * engine in use.
+     *
+     * @param string $sql A SELECT of id, ordered ascending.
+     * @param array $params Bound parameters for that SELECT.
+     * @param int $limit Batch size.
+     * @return int|null
+     */
+    private function get_batch_max_id($sql, array $params, $limit) {
+        global $DB;
+
+        $maxid = null;
+
+        $recordset = $DB->get_recordset_sql($sql, $params, 0, $limit);
+        foreach ($recordset as $record) {
+            $maxid = $record->id;
+        }
+        $recordset->close();
+
+        return $maxid;
+    }
+
+    /**
      * Get limit data.
      *
-     * @return array.
+     * @return array
      */
     private function get_limit_data() {
         $querylimit = (int)SettingsHelper::get_setting('exportrecordslimit') * 10;
@@ -451,7 +587,46 @@ class intelliboard_tracking_service {
 
         $this->set_copy_type_setting($this->copytypes[0]);
 
+        // The disable_tracking() call used to be a no-op (its set_config arguments were
+        // transposed), so the copy has always run with tracking left as the
+        // administrator set it. Now that it really switches tracking off for
+        // the duration of a multi-run copy, the previous value has to be
+        // remembered so finish() can put it back rather than assuming the
+        // default.
+        // Written once only: a copy restarted through
+        // resetimporttrackingprogress calls first_start() again, and
+        // overwriting the marker then would record the already-suspended value
+        // and lose the administrator's original setting.
+        if (get_config(ParamsHelper::PLUGIN, self::SUSPENDED_TRACKING_SETTING) === false) {
+            SettingsHelper::set_setting(
+                self::SUSPENDED_TRACKING_SETTING,
+                (int)(bool)SettingsHelper::get_setting('enabledtracking')
+            );
+        }
+
         TrackingHelper::disable_tracking();
+    }
+
+    /**
+     * Restore the tracking setting saved by first_start().
+     *
+     * @return void
+     */
+    private function resume_tracking() {
+        $suspended = get_config(ParamsHelper::PLUGIN, self::SUSPENDED_TRACKING_SETTING);
+
+        if ($suspended === false || $suspended === null) {
+            // Nothing was suspended by this task, so leave the setting alone.
+            return;
+        }
+
+        if ((int)$suspended === 1) {
+            TrackingHelper::enable_tracking();
+        } else {
+            TrackingHelper::disable_tracking();
+        }
+
+        unset_config(self::SUSPENDED_TRACKING_SETTING, ParamsHelper::PLUGIN);
     }
 
     /**
@@ -464,16 +639,15 @@ class intelliboard_tracking_service {
 
         $this->set_copy_type_setting(null);
 
-        TrackingHelper::enable_tracking();
-
-        // Enable IntelliBoard tracking.
-        $this->config_intelliboard_tracking();
+        // Put the tracking setting back to whatever it was before the copy
+        // started, rather than unconditionally switching it on.
+        $this->resume_tracking();
 
         self::change_task_status();
     }
 
     /**
-     * Сlearing old data from intellidata tranking tables.
+     * Clearing old data from intellidata tranking tables.
      *
      * @return void.
      */
@@ -485,16 +659,6 @@ class intelliboard_tracking_service {
         $DB->delete_records('local_intellidata_trlogs');
 
         $DB->delete_records('local_intellidata_trdetails');
-    }
-
-    /**
-     * Config IntelliBoard tracking.
-     *
-     * @param bool $enabled
-     * @return void
-     */
-    public function config_intelliboard_tracking($enabled = true) {
-        set_config('local_intelliboard', $enabled, 'enabled');
     }
 
     /**

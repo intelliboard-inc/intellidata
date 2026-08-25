@@ -42,31 +42,37 @@ $capabilities = [
         ],
     ],
     'local/intellidata:viewlogs' => [
+        'riskbitmask' => RISK_PERSONAL,
         'captype' => 'read',
         'contextlevel' => CONTEXT_SYSTEM,
         'archetypes' => [],
     ],
     'local/intellidata:viewconfig' => [
+        'riskbitmask' => RISK_CONFIG,
         'captype' => 'read',
         'contextlevel' => CONTEXT_SYSTEM,
         'archetypes' => [],
     ],
     'local/intellidata:editconfig' => [
+        'riskbitmask' => RISK_CONFIG | RISK_DATALOSS,
         'captype' => 'write',
         'contextlevel' => CONTEXT_SYSTEM,
         'archetypes' => [],
     ],
     'local/intellidata:viewlti' => [
+        'riskbitmask' => RISK_PERSONAL,
         'captype' => 'read',
         'contextlevel' => CONTEXT_SYSTEM,
         'archetypes' => [],
     ],
     'local/intellidata:viewadhoctasks' => [
+        'riskbitmask' => RISK_CONFIG,
         'captype' => 'read',
         'contextlevel' => CONTEXT_SYSTEM,
         'archetypes' => [],
     ],
     'local/intellidata:deleteadhoctasks' => [
+        'riskbitmask' => RISK_CONFIG | RISK_DATALOSS,
         'captype' => 'write',
         'contextlevel' => CONTEXT_SYSTEM,
         'archetypes' => [],

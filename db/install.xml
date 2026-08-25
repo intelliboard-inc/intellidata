@@ -131,6 +131,9 @@
       <KEYS>
         <KEY NAME="primary" TYPE="primary" FIELDS="id"/>
       </KEYS>
+      <INDEXES>
+        <INDEX NAME="external_identifier_uix" UNIQUE="true" FIELDS="external_identifier"/>
+      </INDEXES>
     </TABLE>
     <TABLE NAME="local_intellidata_config" COMMENT="Datatype configuration">
       <FIELDS>

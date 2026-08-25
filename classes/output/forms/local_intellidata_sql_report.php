@@ -51,7 +51,9 @@ class local_intellidata_sql_report extends \moodleform {
         $mform->addElement('header', 'general', get_string('sql_report', 'local_intellidata'));
 
         $mform->addElement('text', 'name', get_string('sql_report_name', 'local_intellidata'));
-        $mform->setType('name', PARAM_RAW);
+        // Plain-text label: PARAM_RAW here had no justification. sqlcode below
+        // stays PARAM_RAW because it genuinely is SQL.
+        $mform->setType('name', PARAM_TEXT);
 
         $mform->addElement('textarea', 'sqlcode', get_string('sql_report_code', 'local_intellidata'), [
             'readonly' => true, 'rows' => 16, 'cols' => 80,

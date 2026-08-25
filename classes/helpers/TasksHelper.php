@@ -27,7 +27,6 @@
 namespace local_intellidata\helpers;
 
 use core\task\manager;
-use core\task\manager as task_manager;
 
 /**
  * This plugin provides access to Moodle data in form of analytics and reports in real time.
@@ -247,7 +246,7 @@ class TasksHelper {
         }
 
         $startednow = time();
-        if ($tasks = task_manager::get_running_tasks()) {
+        if ($tasks = manager::get_running_tasks()) {
             foreach ($tasks as $task) {
                 if (in_array($task->classname, $tasksclasses)) {
                     return !($task->classname == $current) && (($startednow - $task->timestarted) < 20);

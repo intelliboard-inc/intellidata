@@ -51,6 +51,14 @@ class reports_repository {
         if ($record) {
             $report->id = $record->id;
             $report->timecreated = $record->timecreated;
+
+            // Carry the stored status forward. run_report() now honours this
+            // flag, so letting a save reset it would mean the remote service
+            // could never run a report it had just stored, and would silently
+            // re-enable one an administrator had switched off. The flag belongs
+            // to the administrator; a save updates the body, not the decision.
+            $report->status = $record->status;
+
             $DB->update_record('local_intellidata_reports', $report);
         } else {
             $report->timecreated = time();

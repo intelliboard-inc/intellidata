@@ -740,7 +740,7 @@ class datatypes_service {
     }
 
     /**
-     * Сheck if the date type is required by default.
+     * Check if the date type is required by default.
      *
      * @param string $datatype
      * @return bool
@@ -750,7 +750,7 @@ class datatypes_service {
     }
 
     /**
-     * Сheck if the date type is optional.
+     * Check if the date type is optional.
      *
      * @param string $datatype
      * @param int $datatype

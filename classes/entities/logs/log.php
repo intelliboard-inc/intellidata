@@ -24,6 +24,8 @@
  */
 namespace local_intellidata\entities\logs;
 
+use local_intellidata\helpers\EventsHelper;
+
 
 
 /**
@@ -79,7 +81,11 @@ class log extends \local_intellidata\entities\entity {
             'crud' => [
                 'type' => PARAM_TEXT,
                 'description' => 'Event crud.',
-                'default' => 'с',
+                // Was a Cyrillic es (U+0441), not the Latin c the CRUD
+                // "created" marker needs, so this default never matched any
+                // comparison against it - and it is published to the analytics
+                // service as part of the declared schema. Use the constant.
+                'default' => EventsHelper::CRUD_CREATED,
                 'null' => false,
             ],
             'contextinstanceid' => [

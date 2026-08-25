@@ -78,7 +78,10 @@ class tracking_service {
         $this->inactivity       = (int) SettingsHelper::get_setting('inactivity');
         $this->trackadmin       = SettingsHelper::get_setting('trackadmin');
         $this->mediatrack       = SettingsHelper::get_setting('trackmedia');
-        $this->path             = isset($_SERVER['SCRIPT_NAME']) ? $_SERVER['SCRIPT_NAME'] : '';
+        // Core's me() is the accessor for the current relative URL and honours
+        // reverse-proxy configuration, which a raw SCRIPT_NAME does not. Only
+        // used to recognise a cron run; see istrackable().
+        $this->path             = CLI_SCRIPT ? 'cron.php' : (string) me();
 
         $this->ajaxrequest      = $ajaxrequest;
         $this->trackparameters  = $trackparameters;
@@ -100,7 +103,8 @@ class tracking_service {
             return false;
         }
 
-        if (strpos($this->path, 'cron.php') !== false) {
+        // A cron run, web or CLI, is not a page view.
+        if (CLI_SCRIPT || strpos($this->path, 'cron.php') !== false) {
             return false;
         }
 
@@ -162,6 +166,10 @@ class tracking_service {
         } else if (!$this->ajaxrequest) {
             $pageparams  = PageParamsHelper::get_params($this->trackparameters);
         } else {
+            // The tracking beacon stores its page context in cookies the
+            // plugin sets itself. Moodle has no accessor for reading a cookie,
+            // so $_COOKIE is the only source; every value is clean_param'd on
+            // the way in.
             $pageparams['page'] = (isset($_COOKIE['intellidatapage']))
                 ? clean_param($_COOKIE['intellidatapage'], PARAM_ALPHANUMEXT) : '';
             $pageparams['param'] = (isset($_COOKIE['intellidataparam']))

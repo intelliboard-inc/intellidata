@@ -26,6 +26,7 @@
 
 namespace local_intellidata\persistent;
 
+use local_intellidata\helpers\DebugHelper;
 use stdClass;
 
 /**
@@ -106,11 +107,11 @@ abstract class base extends \core\persistent {
     }
 
     /**
-     * Bulk insert records to DB.
+     * Insert a batch of records in one transaction.
      *
-     * @param $records
-     * @throws \coding_exception
-     * @throws \dml_exception
+     * @param array $records
+     * @return bool True when the batch was committed. A failure raises rather
+     *              than returning, because rollback re-raises on every path.
      */
     public static function insert_records($records) {
         global $DB;
@@ -119,10 +120,21 @@ abstract class base extends \core\persistent {
             $transaction = $DB->start_delegated_transaction();
             $DB->insert_records(static::TABLE, $records);
             $transaction->allow_commit();
+
+            return true;
         } catch (\Exception $e) {
+            // Log before rolling back. moodle_database::rollback_delegated_transaction()
+            // ends with `throw $e;` on every path, so rollback() does not return
+            // here and anything written after it would never run. The failure
+            // reaches the caller as the original exception; this is the only
+            // place it is recorded.
+            DebugHelper::error_log($e->getMessage());
+
             if (!empty($transaction) && !$transaction->is_disposed()) {
                 $transaction->rollback($e);
             }
+
+            throw $e;
         }
     }
 

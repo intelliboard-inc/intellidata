@@ -38,6 +38,10 @@ class DeprecatedHelper {
      */
     public static function getallheaders() {
         if (!function_exists('getallheaders')) {
+            // Moodle offers no accessor for arbitrary request headers, and
+            // getallheaders() is absent on some older SAPI builds that the
+            // plugin's Moodle 3.4 requires floor still covers. This branch is
+            // the polyfill for those, and $_SERVER is the only source there is.
             $headers = [];
             foreach ($_SERVER as $name => $value) {
                 if (substr($name, 0, 5) == 'HTTP_') {

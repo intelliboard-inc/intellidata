@@ -337,183 +337,6 @@ class DBHelper {
     }
 
     /**
-     * Group by date val.
-     *
-     * @param string $groupperiod daytime|week|monthyearday|month|monthyear|quarter|year
-     * @param $sqlfield
-     * @return string
-     * @throws \coding_exception
-     * @throws \Exception
-     */
-    public static function group_by_date_val($groupperiod, $sqlfield, $params = []) {
-        global $CFG;
-
-        if (isset($params['offset'])) {
-            $offset = intval($params['offset']);
-        } else {
-            $offset = 0;
-        }
-
-        switch ($groupperiod) {
-            case 'daytime':
-                if ($CFG->dbtype == self::POSTGRES_TYPE) {
-                    $format = get_string('postgretimedate', 'local_intellicart');;
-                    $result = "to_char(to_timestamp({$sqlfield} + {$offset}),'{$format}')";
-                } else {
-                    $format = get_string('mysqltimedate', 'local_intellicart');
-                    $result = "FROM_UNIXTIME({$sqlfield} + {$offset}, '{$format}')";
-                }
-
-                break;
-
-            case 'week':
-                if ($CFG->dbtype == self::POSTGRES_TYPE) {
-                    $format = get_string('postgreweek', 'local_intellicart');;
-                    $result = "to_char(to_timestamp({$sqlfield} + {$offset}),'{$format}')";
-                } else {
-                    $format = get_string('mysqlweek', 'local_intellicart');
-                    $result = "FROM_UNIXTIME({$sqlfield} + {$offset}, '{$format}')";
-                }
-
-                break;
-            case 'monthyearday':
-                if ($CFG->dbtype == self::POSTGRES_TYPE) {
-                    $format = get_string('postgremonthyearday', 'local_intellicart');;
-                    $result = "to_char(to_timestamp({$sqlfield} + {$offset}),'{$format}')";
-                } else {
-                    $format = get_string('mysqlmonthyearday', 'local_intellicart');
-                    $result = "FROM_UNIXTIME({$sqlfield} + {$offset}, '{$format}')";
-                }
-
-                break;
-            case 'month':
-                if ($CFG->dbtype == self::POSTGRES_TYPE) {
-                    $format = get_string('postgremonth', 'local_intellicart');;
-                    $result = "to_char(to_timestamp({$sqlfield} + {$offset}),'{$format}')";
-                } else {
-                    $format = get_string('mysqlmonth', 'local_intellicart');
-                    $result = "FROM_UNIXTIME({$sqlfield} + {$offset}, '{$format}')";
-                }
-
-                break;
-            case 'monthyear':
-                if ($CFG->dbtype == self::POSTGRES_TYPE) {
-                    $format = get_string('postgremonthyear', 'local_intellicart');;
-                    $result = "to_char(to_timestamp({$sqlfield} + {$offset}),'{$format}')";
-                } else {
-                    $format = get_string('mysqlmonthyear', 'local_intellicart');
-                    $result = "FROM_UNIXTIME({$sqlfield} + {$offset}, '{$format}')";
-                }
-
-                break;
-            case 'quarter':
-                if ($CFG->dbtype == self::POSTGRES_TYPE) {
-                    $format = get_string('postgrequarteryear', 'local_intellicart');;
-                    $result = "CONCAT('Q', to_char(to_timestamp({$sqlfield} + {$offset}),'{$format}'))";
-                } else {
-                    $format = get_string('mysqlyear', 'local_intellicart');
-                    $quarter = "QUARTER(FROM_UNIXTIME({$sqlfield} + {$offset}))";
-                    $year = "FROM_UNIXTIME({$sqlfield} + {$offset}, '{$format}')";
-                    $result = "CONCAT('Q', {$quarter}, ' ', {$year})";
-                }
-
-                break;
-            case 'year':
-                if ($CFG->dbtype == self::POSTGRES_TYPE) {
-                    $format = get_string('postgreyear', 'local_intellicart');;
-                    $result = "to_char(to_timestamp({$sqlfield} + {$offset}),'{$format}')";
-                } else {
-                    $format = get_string('mysqlyear', 'local_intellicart');
-                    $result = "FROM_UNIXTIME({$sqlfield} + {$offset}, '{$format}')";
-                }
-
-                break;
-            default:
-                throw new \Exception('Invalid grouping period');
-        }
-
-        return $result;
-    }
-
-    /**
-     * Get type cast.
-     *
-     * @param $type
-     * @return string
-     * @throws \Exception
-     */
-    public static function get_typecast($type) {
-        global $CFG;
-
-        if ($CFG->dbtype != self::POSTGRES_TYPE) {
-            return '';
-        }
-
-        switch ($type) {
-            case 'numeric':
-                return '::NUMERIC';
-            case 'text':
-                return '::TEXT';
-            default:
-                throw new \Exception('Invalid type');
-        }
-    }
-
-    /**
-     * Debug build sql.
-     *
-     * @param $sql
-     * @param $params
-     * @return array|string|string[]
-     */
-    public static function debug_build_sql($sql, $params) {
-        $sql = str_replace(['{', '}'], ['mdl_', ''], $sql);
-
-        foreach ($params as $key => $param) {
-            $sql = str_replace(":{$key}", "'$param'", $sql);
-        }
-
-        return $sql;
-    }
-
-    /**
-     * Get row number.
-     *
-     * @return string[]
-     */
-    public static function get_row_number() {
-        global $CFG;
-
-        if ($CFG->dbtype == self::POSTGRES_TYPE) {
-            $rownumber = "row_number() OVER ()";
-            $rownumberselect = "";
-        } else {
-            $rownumber = "@x:=@x+1";
-            $rownumberselect = "(SELECT @x:= 0) AS x, ";
-        }
-
-        return [$rownumber, $rownumberselect];
-    }
-
-    /**
-     * Get condition user status.
-     *
-     * @param $letters
-     * @return string
-     */
-    public static function get_condition_userstatus($letters = '') {
-        if (get_config('local_intellicart', 'displayrecordsforsuspendedusers')) {
-            $res = "#deleted = 0";
-        } else {
-            $res = "#deleted = 0 AND #suspended = 0 AND #confirmed = 1";
-        }
-
-        $letters = ($letters) ? "{$letters}." : '';
-
-        return str_replace('#', $letters, $res);
-    }
-
-    /**
      * Remove id triggers.
      *
      * @param $datatype
@@ -618,8 +441,11 @@ class DBHelper {
                 try {
                     self::$customdbclient[$penetrationtype]->dispose();
                 } catch (\Throwable $e) {
-                    // Ignore if connection already disposed.
-                    $e->getMessage();
+                    // Already disposed, which is the expected case here.
+                    // `$e->getMessage();` on its own was a statement with no
+                    // effect, and an empty catch is a static-analysis finding,
+                    // so record it on the plugin's own channel instead.
+                    DebugHelper::error_log('Dispose of stale DB client: ' . $e->getMessage());
                 }
 
                 unset(self::$customdbclient[$penetrationtype]);
@@ -635,8 +461,8 @@ class DBHelper {
                     try {
                         $DB->dispose();
                     } catch (\Throwable $e) {
-                        // Ignore if connection already disposed.
-                        $e->getMessage();
+                        // Already disposed, which is the expected case here.
+                        DebugHelper::error_log('Dispose of core DB client: ' . $e->getMessage());
                     }
                 }
 

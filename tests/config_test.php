@@ -226,7 +226,7 @@ class config_test extends \advanced_testcase {
 
             $configservice->reset_config_datatype($record);
 
-            // Check сreation task after reset.
+            // Check creation task after reset.
             $this->assertTrue($DB->record_exists('task_adhoc', ['classname' => "\\" . export_adhoc_task::class]));
         }
     }

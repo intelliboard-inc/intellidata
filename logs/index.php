@@ -52,9 +52,21 @@ $PAGE->set_pagelayout(SettingsHelper::get_page_layout());
 
 if ($id && $action == 'delete') {
 
-    // Delete file by id.
-    StorageHelper::delete_file($id);
-    redirect($pageurl);
+    // Deleting an export archive is a destructive action, and viewlogs is
+    // declared captype read - it gates the listing, not the removal. Require
+    // the plugin's write capability for the delete itself.
+    require_capability('local/intellidata:editconfig', $context);
+
+    // Delete file by id. delete_file() raises when the id does not resolve to
+    // one of this plugin's own files, which is reachable from a double-clicked
+    // link or a stale listing, so report it on the page the user came from
+    // instead of replacing that page with an exception.
+    try {
+        StorageHelper::delete_file($id);
+        redirect($pageurl);
+    } catch (moodle_exception $e) {
+        redirect($pageurl, $e->getMessage(), null, \core\output\notification::NOTIFY_ERROR);
+    }
 
 } else if ($action == 'export') {
 

@@ -150,7 +150,7 @@ class usergrade extends \local_intellidata\entities\entity {
                 $gradeitem->bounded_grade($finalgrade) :
                 grade_format_gradevalue($finalgrade, $gradeitem, true, GRADE_DISPLAY_TYPE_REAL);
         } else {
-            // Не виводимо mtrace під час тестів
+            // Suppress mtrace output while running under PHPUnit.
             if (CLI_SCRIPT && !PHPUNIT_TEST) {
                 mtrace('Not found gradeitem: ' . ($object->itemid ?? 'unknown'));
             }

@@ -26,6 +26,7 @@
 
 namespace local_intellidata\repositories\tracking;
 
+use local_intellidata\helpers\DebugHelper;
 use local_intellidata\helpers\TrackingHelper;
 use local_intellidata\persistent\tracking;
 use local_intellidata\persistent\trackinglogs;
@@ -145,6 +146,9 @@ class usertracking_repository {
         // Get existing records from DB.
         $newrecords = $this->get_new_tracking_records($exitstingrecords);
 
+        // The insert either commits or raises - a rolled-back batch
+        // reaches the caller as an exception rather than as a count, so the
+        // returned figure now only ever describes records that were written.
         if (count($newrecords)) {
             tracking::insert_records($newrecords);
         }
@@ -175,6 +179,13 @@ class usertracking_repository {
 
             $transaction->allow_commit();
         } catch (\Exception $e) {
+            // Core's rollback() only re-raises when the transaction is not the
+            // innermost one on the stack, so in the normal case a failure
+            // here was completely silent: no exception, no log entry, no
+            // return value. Log before rolling back, because anything after
+            // the rollback may be unreachable.
+            DebugHelper::error_log($e->getMessage());
+
             if (!empty($transaction) && !$transaction->is_disposed()) {
                 $transaction->rollback($e);
             }
@@ -269,6 +280,8 @@ class usertracking_repository {
         // Get existing records from DB.
         $newrecords = $this->get_new_tracking_logs($exitstingrecords);
 
+        // See insert_tracking_records(): a failed batch raises rather than
+        // returning, so the count describes records that were written.
         if (count($newrecords)) {
             trackinglogs::insert_records($newrecords);
         }
@@ -299,6 +312,13 @@ class usertracking_repository {
 
             $transaction->allow_commit();
         } catch (\Exception $e) {
+            // Core's rollback() only re-raises when the transaction is not the
+            // innermost one on the stack, so in the normal case a failure
+            // here was completely silent: no exception, no log entry, no
+            // return value. Log before rolling back, because anything after
+            // the rollback may be unreachable.
+            DebugHelper::error_log($e->getMessage());
+
             if (!empty($transaction) && !$transaction->is_disposed()) {
                 $transaction->rollback($e);
             }
@@ -393,6 +413,8 @@ class usertracking_repository {
         // Get existing records from DB.
         $newrecords = $this->get_new_tracking_details($exitstingrecords);
 
+        // See insert_tracking_records(): a failed batch raises rather than
+        // returning, so the count describes records that were written.
         if (count($newrecords)) {
             trackingdetails::insert_records($newrecords);
         }
@@ -423,6 +445,13 @@ class usertracking_repository {
 
             $transaction->allow_commit();
         } catch (\Exception $e) {
+            // Core's rollback() only re-raises when the transaction is not the
+            // innermost one on the stack, so in the normal case a failure
+            // here was completely silent: no exception, no log entry, no
+            // return value. Log before rolling back, because anything after
+            // the rollback may be unreachable.
+            DebugHelper::error_log($e->getMessage());
+
             if (!empty($transaction) && !$transaction->is_disposed()) {
                 $transaction->rollback($e);
             }

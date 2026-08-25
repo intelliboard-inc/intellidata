@@ -73,9 +73,8 @@ class SettingsHelper {
         'ltisharedsecret' => '',
         'ltititle' => '',
         'custommenuitem' => 0,
-        'ltiassigndefaultmethod' => 0,
         'ibnltirole' => '',
-        'debug' => 0,
+        'ltidebug' => 0,
         // Internal settings.
         'lastmigrationdate' => 0,
         'migrationstart' => 0,
@@ -100,7 +99,6 @@ class SettingsHelper {
         'cacheconfig' => 1,
         'forcedisablemigration' => 0,
         'enablecustomdbdriver' => 1,
-        'webservicetoken' => '',
     ];
 
     /**
